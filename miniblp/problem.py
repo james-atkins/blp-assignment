@@ -1,11 +1,12 @@
+import math
 from typing import Optional, List
 
 import numpy as np
 import pandas as pd
+import scipy.optimize
 import scipy.linalg as linalg
 
 from .integration import NumericalIntegration
-from .iteration import Iteration
 from .common import Matrix, Vector, Theta1, Theta2
 from .data import Products, Individuals
 from .iteration import Iteration
@@ -38,14 +39,27 @@ class Problem:
         except linalg.LinAlgError:
             raise ValueError("Failed to compute the GMM weighting matrix.")
 
-    def solve(self, weighting: Optional[Matrix] = None):
-        pass
+    def solve(self, initial_sigma: Matrix, initial_pi: Matrix):
+        theta2 = Theta2(initial_sigma=initial_sigma, initial_pi=initial_pi)
+        def objective_wrapper(x):
+            theta2.optimiser_parameters = x
+            return self._objective_function(theta2)
 
-    def _compute_delta(self, theta2: Theta2, initial_delta: Optional[Vector] = None) -> Vector:
+        return scipy.optimize.minimize(objective_wrapper, theta2.optimiser_parameters, method="Nelder-Mead")
+
+    def _compute_delta(self, theta2: Theta2, initial_delta: Optional[Vector] = None) -> Optional[Vector]:
         """ Compute the mean utility that equates observed and predicted market shares. """
         # The market share inversion is independent for each market so each can be computed in parallel,
         # but for now this is done sequentially.
-        deltas = [market.compute_delta(theta2, self.iteration, initial_delta) for market in self.markets]
+        # TODO: Split initial delta for each market
+        deltas = []
+        for market in self.markets:
+            result = market.compute_delta(theta2, self.iteration, initial_delta)
+            if not result.success:
+                return None
+            else:
+                deltas.append(result.final)
+
         return np.concatenate(deltas)
 
     def _concentrate_out_linear_parameters(self, delta: Vector) -> Theta1:
@@ -69,15 +83,20 @@ class Problem:
         # is also positive definite
         return linalg.solve(a, b, assume_a="pos")
 
-    def _objective_function(self, theta2: Theta2):
-        # Compute the residual
+    def _objective_function(self, theta2: Theta2) -> float:
         delta = self._compute_delta(theta2)
+
+        # If there are numerical issues or the contraction does not converge
+        if delta is None:
+            print("Objective value: inf")
+            return math.inf
+
         theta1 = self._concentrate_out_linear_parameters(delta)
         omega = delta - self.products.X1 @ theta1
 
         Z = self.products.Z
         W = self.W
 
-        # TODO: Check if undefined and put very high values
-
-        return omega.T @ Z @ W @ Z.T @ omega
+        value = omega.T @ Z @ W @ Z.T @ omega
+        print(f"Objective value: {value}")
+        return value

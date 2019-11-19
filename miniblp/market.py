@@ -4,7 +4,7 @@ import numpy as np
 
 from .common import Vector, Theta2
 from .data import Individuals, Products
-from .iteration import Iteration
+from .iteration import Iteration, IterationResult
 
 
 class Market:
@@ -62,12 +62,12 @@ class Market:
         else:
             return np.sum(self.individuals.weights * choice_probabilities, axis=1)
 
-    def compute_delta(self, theta2: Theta2, iteration: Iteration, initial_delta: Optional[Vector] = None) -> Vector:
+    def compute_delta(self, theta2: Theta2, iteration: Iteration, initial_delta: Optional[Vector] = None) -> IterationResult:
         """ Compute the mean utility for this market that equates observed and predicted market shares. """
 
         # Use closed form solution if no heterogeneity
         if self.products.K2 == 0:
-            return self.logit_delta
+            return IterationResult(self.logit_delta)
 
         def contraction(delta: Vector) -> Vector:
             computed_market_shares = self.compute_market_share(delta, theta2)

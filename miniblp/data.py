@@ -131,9 +131,6 @@ class Individuals:
         # Build from formula
         demographics = patsy.dmatrix(demographics_formula, drawn_demographics)
 
-        # TODO: remove the intercept in a nicer way
-        demographics = demographics[:, 1:]
-
         return cls(market_ids=market_ids, weights=weights, nodes=nodes, demographics=demographics)
 
     def split_markets(self) -> Iterator["Individuals"]:
