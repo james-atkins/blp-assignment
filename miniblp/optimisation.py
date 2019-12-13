@@ -1,9 +1,9 @@
-from typing import Callable, NamedTuple, Optional
+from dataclasses import dataclass
+from typing import Callable, NamedTuple, Optional, Union
 
-import numpy as np
 import scipy.optimize
 
-from .common import Matrix, Vector, Theta2
+from .common import Matrix, Vector
 
 
 class ObjectiveResult(NamedTuple):
@@ -11,26 +11,48 @@ class ObjectiveResult(NamedTuple):
     gradient: Optional[Matrix]
 
 
+ObjectiveFunction = Callable[[Vector, bool], Union[ObjectiveResult, float]]
+
+
+@dataclass
+class OptimisationResult:
+    success: bool
+    solution: Vector
+    objective: float
+    jacobian: Optional[Matrix]
+    termination_message: Optional[str]
+    number_iterations: int
+    number_evaluations: int
+
+
 class Optimisation:
-    """ Optimisation of the GMM objective function. """
-
-    # values, iterations, evaluations
-    # verbose_objective_function: Callable[[Array, int, int], ObjectiveResult])
+    def optimise(self, objective_function: ObjectiveFunction, initial: Vector) -> OptimisationResult:
+        raise NotImplementedError
 
 
-# objective_function(theta) -> (objective, gradient)
-ObjectiveFunction: Callable[[Vector, ...], float]
-JacobianFunction: Callable[[Vector, ...], Vector]
+class SciPyOptimisation(Optimisation):
+    def __init__(self, method: str, **kwargs):
+        if method not in ("Nelder-Mead", "BFGS"):
+            raise ValueError("Invalid optimisation method.")
+        self._method = method
 
+        if method in ("BFGS",):
+            self._compute_jacobian = True
+        else:
+            self._compute_jacobian = False
 
-class NelderMeadOptimisation(Optimisation):
+        self._options = kwargs
 
-    objective_function: Callable[[Vector, ...], float]
-    initial_guess: Vector
-    jacobian: Callable[[Vector, ...], Vector]
+    def optimise(self, objective_function: ObjectiveFunction, initial: Vector) -> OptimisationResult:
+        result = scipy.optimize.minimize(objective_function, initial, args=(self._compute_jacobian,),
+                                         method=self._method, jac=self._compute_jacobian, options=self._options)
 
-    def optimise(self, objective_function: ObjectiveFunction):
-        # Objective function to be minimised: f(x, *args) -> float
-
-        pass
-
+        return OptimisationResult(
+            success=result.success,
+            solution=result.x,
+            objective=result.fun,
+            jacobian=result.jac if self._compute_jacobian is True else None,
+            termination_message=result.message,
+            number_iterations=result.nit,
+            number_evaluations=result.nfev
+        )

@@ -2,17 +2,16 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 import numpy as np
-import scipy.linalg as linalg
+from numba import njit
 
 from .common import Vector
-
 
 Contraction = Callable[[Vector], Vector]
 
 
 @dataclass
 class IterationResult:
-    final: Vector
+    final_delta: Vector
     iterations: int = 0
     error_message: Optional[str] = None
 
@@ -46,7 +45,7 @@ class SimpleFixedPointIteration(Iteration):
             if not np.isfinite(x_next).all():
                 return IterationResult(x, iterations, "Numerical issues detected.")
 
-            if linalg.norm(x - x_next, ord=np.inf) < self.tolerance:
+            if within_tolerance(x, x_next, self.tolerance):
                 return IterationResult(x_next, iterations)
 
             x = x_next
@@ -72,7 +71,7 @@ class PhasedToleranceIteration(Iteration):
             if not np.isfinite(x_next).all():
                 return IterationResult(x, iterations, "Numerical issues detected.")
 
-            if linalg.norm(x - x_next, ord=np.inf) < tolerance:
+            if within_tolerance(x, x_next, tolerance):
                 return IterationResult(x_next, iterations)
 
             x = x_next
@@ -82,3 +81,15 @@ class PhasedToleranceIteration(Iteration):
             # after the first 100.
             if iterations >= 100 and iterations % 50 == 0:
                 tolerance /= 10
+
+@njit
+def within_tolerance(x: Vector, x_next: Vector, tolerance: float) -> bool:
+    """
+    Tolerance checking using the sup norm.
+
+    Quicker than scipy.linalg.norm as it short circuits."""
+    for i, j in zip(x, x_next):
+        if abs(i - j) >= tolerance:
+            return False
+
+    return True

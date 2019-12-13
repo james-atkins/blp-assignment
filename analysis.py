@@ -8,14 +8,15 @@ demographics = pd.read_csv("data/demographics.csv")
 
 integration = miniblp.integration.MonteCarloIntegration(200)
 iteration = miniblp.iteration.PhasedToleranceIteration()
+optimisation = miniblp.optimisation.SciPyOptimisation("Nelder-Mead")
+# optimisation = miniblp.optimisation.SciPyOptimisation("BFGS", gtol=1e-10)
 
 problem = miniblp.Problem("1 + price + average_score + in_app_purchases",
                           "0 + price",
                           "num_apps_category",
-                          "demographic1", apps, demographics,
+                          "0 + demographic1", apps, demographics,
                           integration, iteration)
 
-theta2 = miniblp.Theta2(np.eye(1), np.array([[1]]))
 
-
-print(problem.solve(theta2))
+result = problem.solve(np.array([[-0.5]]), np.array([[0.5]]), optimisation)
+print(result)

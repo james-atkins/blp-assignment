@@ -10,11 +10,11 @@ class NumericalIntegration:
     def build(self, dimensions: int, state: np.random.RandomState) -> Tuple[Matrix, Optional[Vector]]:
         raise NotImplementedError
 
-    def build_many(self, dimensions: int, market_ids: Iterable[str], state: np.random.RandomState) -> Tuple[Vector, Matrix, Optional[Vector]]:
+    def build_many(self, dimensions: int, market_ids: Iterable[str], state: np.random.RandomState) -> Tuple[Vector, Matrix, Vector]:
         """Build concatenated IDs, nodes, and weights for each market ID."""
         ids_list: List[Vector] = []
         nodes_list: List[Matrix] = []
-        weights_list: List[Optional[Vector]] = []
+        weights_list: List[Vector] = []
 
         for market_id in market_ids:
             nodes, weights = self.build(dimensions, state)
@@ -22,10 +22,7 @@ class NumericalIntegration:
             nodes_list.append(nodes)
             weights_list.append(weights)
 
-        if any(w is None for w in weights_list):
-            return np.concatenate(ids_list), np.vstack(nodes_list), None
-        else:
-            return np.concatenate(ids_list), np.vstack(nodes_list), np.concatenate(weights_list)
+        return np.concatenate(ids_list), np.vstack(nodes_list), np.concatenate(weights_list)
 
 
 class MonteCarloIntegration(NumericalIntegration):
@@ -33,7 +30,7 @@ class MonteCarloIntegration(NumericalIntegration):
         self._ns = ns
 
     def build(self, dimensions: int, state: np.random.RandomState) -> Tuple[Matrix, Optional[Vector]]:
-        return state.normal(size=(self._ns, dimensions)), None
+        return state.normal(size=(self._ns, dimensions)), np.repeat(1/self._ns, self._ns)
 
 
 class PrecomputedIntegration(NumericalIntegration):

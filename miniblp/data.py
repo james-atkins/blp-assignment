@@ -30,7 +30,7 @@ class Products:
         assert is_matrix(self.Z)
         assert are_same_length(self.market_ids, self.market_shares, self.prices, self.X1, self.X2, self.Z)
 
-        _, self.K1 = self.X1.shape
+        self.J, self.K1 = self.X1.shape
         _, self.K2 = self.X2.shape
 
     @classmethod
@@ -84,7 +84,7 @@ class Products:
 @dataclass
 class Individuals:
     market_ids: Vector  # IDs that associate individuals with markets.
-    weights: Optional[Vector]  # I
+    weights: Vector  # I
     nodes: Matrix  # I x D
     demographics: Matrix  # I x D
 
@@ -93,10 +93,7 @@ class Individuals:
         assert self.weights is None or is_vector(self.weights)
         assert is_matrix(self.nodes)
         assert is_matrix(self.demographics)
-        if self.weights is None:
-            assert are_same_length(self.nodes, self.demographics)
-        else:
-            assert are_same_length(self.weights, self.nodes, self.demographics)
+        assert are_same_length(self.weights, self.nodes, self.demographics)
 
         self.I, self.D = self.demographics.shape
 
@@ -152,7 +149,3 @@ def _split_markets(market_ids, *arrays_or_matrices) -> Iterator[Tuple[np.ndarray
     # np.split leaves an empty array as the first item
     next(it)
     return it
-
-
-def _remove_intercept(terms_list):
-    pass

@@ -1,13 +1,15 @@
+import itertools
 import math
-from typing import Optional, List
+from typing import Optional, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
-import scipy.optimize
 import scipy.linalg as linalg
+import scipy.optimize
 
 from .integration import NumericalIntegration
-from .common import Matrix, Vector, Theta1, Theta2
+from .optimisation import Optimisation, ObjectiveResult, OptimisationResult
+from .common import Matrix, Vector, Theta1, Theta2, is_vector
 from .data import Products, Individuals
 from .iteration import Iteration
 from .market import Market
@@ -35,32 +37,68 @@ class Problem:
 
         # Compute initial GMM weighting matrix. This is updated in the second GMM step.
         try:
-            self.W = linalg.inv(self.products.Z.T @ self.products.Z)
+            self._update_weighting_matrix(linalg.inv(self.products.Z.T @ self.products.Z / self.products.J))
         except linalg.LinAlgError:
             raise ValueError("Failed to compute the GMM weighting matrix.")
 
-    def solve(self, initial_sigma: Matrix, initial_pi: Matrix):
-        theta2 = Theta2(initial_sigma=initial_sigma, initial_pi=initial_pi)
-        def objective_wrapper(x):
+    def solve(self, initial_sigma: Matrix, initial_pi: Matrix, optimisation: Optimisation, initial_delta: Optional[Vector] = None) -> OptimisationResult:
+        theta2 = Theta2(self, initial_sigma=initial_sigma, initial_pi=initial_pi)
+
+        def objective_wrapper(x: Vector, compute_jacobian: bool) -> Union[ObjectiveResult, float]:
             theta2.optimiser_parameters = x
-            return self._objective_function(theta2)
+            result = self._objective_function(theta2, compute_jacobian, initial_delta)
+            print(result.objective)
+            if compute_jacobian:
+                return result
+            else:
+                return result.objective
 
-        return scipy.optimize.minimize(objective_wrapper, theta2.optimiser_parameters, method="Nelder-Mead")
+        return optimisation.optimise(objective_wrapper, theta2.optimiser_parameters)
 
-    def _compute_delta(self, theta2: Theta2, initial_delta: Optional[Vector] = None) -> Optional[Vector]:
-        """ Compute the mean utility that equates observed and predicted market shares. """
+    def _objective_function(self, theta2: Theta2, compute_jacobian: bool, initial_delta: Optional[Vector]) -> ObjectiveResult:
+        if initial_delta is not None:
+            assert is_vector(initial_delta)
+            assert len(initial_delta) == self.products.J
+            initial_deltas = np.split(initial_delta, np.cumsum([market.products.J for market in self.markets]))
+            assert len(initial_deltas) == len(self.markets)
+        else:
+            initial_deltas = itertools.repeat(None)
+
+        deltas: List[Vector] = []
+        jacobians: List[Matrix] = []
+
         # The market share inversion is independent for each market so each can be computed in parallel,
         # but for now this is done sequentially.
-        # TODO: Split initial delta for each market
-        deltas = []
-        for market in self.markets:
-            result = market.compute_delta(theta2, self.iteration, initial_delta)
+        for market, initial_delta in zip(self.markets, initial_deltas):
+            result, jacobian = market.solve_demand(theta2, self.iteration, compute_jacobian, initial_delta)
             if not result.success:
-                return None
+                # If there are numerical issues or the contraction does not converge
+                return ObjectiveResult(1, np.zeros((self.products.J, theta2.P)))
             else:
-                deltas.append(result.final)
+                deltas.append(result.final_delta)
+                jacobians.append(jacobian)
 
-        return np.concatenate(deltas)
+        # Stack the deltas and Jacobians from all the markets
+        delta = np.concatenate(deltas)
+        jacobian = np.vstack(jacobians) if compute_jacobian else None
+
+        theta1 = self._concentrate_out_linear_parameters(delta)
+        omega = delta - self.products.X1 @ theta1
+
+        g = omega.T @ self.products.Z / self.products.J
+        objective_value = g @ self.W @ g.T
+
+        if jacobian is None:
+            gradient = None
+        else:
+            G = self.products.Z.T @ jacobian / self.products.J
+            gradient = 2 * G.T @ self.W @ g
+
+        return ObjectiveResult(objective_value, gradient)
+
+    def _update_weighting_matrix(self, weighting: Matrix):
+        self.W = weighting
+        self._x1_z_w_z = self.products.X1.T @ self.products.Z @ self.W @ self.products.Z.T
 
     def _concentrate_out_linear_parameters(self, delta: Vector) -> Theta1:
         """
@@ -72,31 +110,9 @@ class Problem:
         # Rewrite the above equation and solve for θ₁ rather than inverting matrices
         # X₁' Z W Z' X₁ θ₁ = X₁' Z W Z' 𝛿(θ₂)
 
-        # TODO: X1, Z and W are fixed. So we only need to compute common and a once.
-        X1 = self.products.X1
-        Z = self.products.Z
-        common = X1.T @ Z @ self.W @ Z.T
-        a = common @ X1
-        b = common @ delta
+        a = self._x1_z_w_z @ self.products.X1
+        b = self._x1_z_w_z @ delta
 
         # W is positive definite as it is a GMM weighting matrix and (Z' X₁) has full rank so a = (Z' X₁)' W (Z' X₁)
         # is also positive definite
         return linalg.solve(a, b, assume_a="pos")
-
-    def _objective_function(self, theta2: Theta2) -> float:
-        delta = self._compute_delta(theta2)
-
-        # If there are numerical issues or the contraction does not converge
-        if delta is None:
-            print("Objective value: inf")
-            return math.inf
-
-        theta1 = self._concentrate_out_linear_parameters(delta)
-        omega = delta - self.products.X1 @ theta1
-
-        Z = self.products.Z
-        W = self.W
-
-        value = omega.T @ Z @ W @ Z.T @ omega
-        print(f"Objective value: {value}")
-        return value

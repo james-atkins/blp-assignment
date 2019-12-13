@@ -1,8 +1,10 @@
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
+from scipy import linalg
 
-from .common import Vector, Theta2
+from miniblp.iteration import IterationResult
+from .common import Vector, Theta2, Matrix
 from .data import Individuals, Products
 from .iteration import Iteration, IterationResult
 
@@ -33,7 +35,7 @@ class Market:
     def __repr__(self):
         return f"<Market: {self.name}>"
 
-    def compute_mu(self, theta2: Theta2):
+    def compute_mu(self, theta2: Theta2) -> Matrix:
         pi = theta2.pi
         sigma = theta2.sigma
 
@@ -43,26 +45,49 @@ class Market:
 
         return self.products.X2 @ random_coefficients
 
-    def compute_market_share(self, delta: Vector, theta2: Theta2) -> Vector:
+    @staticmethod
+    def _compute_choice_probabilities(delta: Vector, mu: Matrix) -> Matrix:
         # J x I array
-        exp_utility = self.compute_mu(theta2)
-        exp_utility += delta[:, np.newaxis]
-        np.exp(exp_utility, out=exp_utility)
+        utility = delta[:, np.newaxis] + mu
+        exp_utility = np.exp(utility)
 
         # I array
         denominator = np.sum(exp_utility, axis=0)
         denominator += 1
 
         # J x I array of the probability that agent i chooses product j
-        choice_probabilities = exp_utility / denominator
+        return exp_utility / denominator
+
+    @staticmethod
+    def compute_choice_probabilities(delta: Vector, mu: Matrix) -> Matrix:
+        utilities = delta[:, np.newaxis] + mu
+        utility_reduction = np.clip(utilities.max(axis=0, keepdims=True), 0, None)
+        utilities -= utility_reduction
+        exp_utilities = np.exp(utilities)
+        scale = np.exp(-utility_reduction)
+
+        return exp_utilities / (scale + exp_utilities.sum(axis=0, keepdims=True))
+
+    def compute_market_shares(self, delta: Vector, mu: Matrix):
+        choice_probabilities = self.compute_choice_probabilities(delta, mu)
 
         # Integrate over agents to calculate the market share
-        if self.individuals.weights is None:
-            return np.sum(choice_probabilities, axis=1) / self.individuals.I
-        else:
-            return np.sum(self.individuals.weights * choice_probabilities, axis=1)
+        return choice_probabilities @ self.individuals.weights
 
-    def compute_delta(self, theta2: Theta2, iteration: Iteration, initial_delta: Optional[Vector] = None) -> IterationResult:
+    def solve_demand(self, theta2: Theta2, iteration: Iteration, compute_jacobian: bool, initial_delta: Optional[Vector] = None) -> Tuple[IterationResult, Optional[Matrix]]:
+        # Solve the contraction mapping
+        mu = self.compute_mu(theta2)
+        result = self.compute_delta(mu, iteration, initial_delta)
+
+        # Compute the Jacobian
+        if result.success and compute_jacobian:
+            jacobian = self.compute_delta_by_theta_jacobian(theta2, result.final_delta, mu)
+        else:
+            jacobian = None
+
+        return result, jacobian
+
+    def compute_delta(self, mu: Vector, iteration: Iteration, initial_delta: Optional[Vector] = None) -> IterationResult:
         """ Compute the mean utility for this market that equates observed and predicted market shares. """
 
         # Use closed form solution if no heterogeneity
@@ -70,10 +95,34 @@ class Market:
             return IterationResult(self.logit_delta)
 
         def contraction(delta: Vector) -> Vector:
-            computed_market_shares = self.compute_market_share(delta, theta2)
+            computed_market_shares = self.compute_market_shares(delta, mu)
             return delta + self.log_market_shares - np.log(computed_market_shares)
 
         if initial_delta is None:
             initial_delta = self.logit_delta
 
         return iteration.iterate(initial_delta, contraction)
+
+    def compute_delta_by_theta_jacobian(self, theta2: Theta2, delta: Vector, mu: Vector) -> Matrix:
+        choice_probabilities = self.compute_choice_probabilities(delta, mu)
+        shares_by_delta_jacobian = self.compute_share_by_delta_jacobian(choice_probabilities)
+        shares_by_theta_jacobian = self.compute_share_by_theta_jacobian(choice_probabilities, theta2)
+        return linalg.solve(shares_by_delta_jacobian, -shares_by_theta_jacobian)
+
+    def compute_share_by_delta_jacobian(self, choice_probabilities):
+        """ Compute the Jacobian of market shares with respect to delta. """
+        diagonal_shares = np.diagflat(self.products.market_shares)
+        weighted_probabilities = self.individuals.weights[:, np.newaxis] * choice_probabilities.T
+        return diagonal_shares - choice_probabilities @ weighted_probabilities
+
+    def compute_share_by_theta_jacobian(self, choice_probabilities: Vector, theta2: Theta2):
+        """ Compute the Jacobian of market shares with respect to theta. """
+        jacobian = np.empty(shape=(self.products.J, theta2.P))
+
+        for p, parameter in enumerate(theta2.unfixed):
+            v = parameter.agent_characteristic(self)
+            x = parameter.product_characteristic(self)
+            jacobian[:, p] = (choice_probabilities * v.T * (x - x.T @ choice_probabilities)) @ self.individuals.weights
+
+        return jacobian
+
