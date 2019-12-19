@@ -1,4 +1,4 @@
-from typing import Type, Iterable, Tuple, List
+from typing import Type, Iterable, Tuple, List, Any, Optional
 
 import numpy as np
 
@@ -14,9 +14,9 @@ def is_matrix(matrix: np.ndarray) -> bool:
     return len(matrix.shape) == 2
 
 
-def are_same_length(*arrays: np.ndarray) -> bool:
+def are_same_length(*arrays: Optional[np.ndarray]) -> bool:
     """ Check that the vectors and matrix in arrays have the same length. """
-    iterator = iter(arrays)
+    iterator = filter(lambda array: array is not None, iter(arrays))
     try:
         first = len(next(iterator))
     except StopIteration:
@@ -54,37 +54,43 @@ class PiParameter(Parameter):
 class Theta2:
     """ Coefficients for the non-linear parameters. """
 
-    def __init__(self, problem: "Problem", initial_sigma: Matrix, initial_pi: Matrix):
+    def __init__(self, problem: "Problem", initial_sigma: Matrix, initial_pi: Optional[Matrix] = None):
         k2 = problem.products.K2
         if not (k2 == initial_sigma.shape[0] == initial_sigma.shape[1]):
             raise ValueError("sigma is not of the correct dimensions. Should be {} x {}".format(k2, k2))
 
-        if k2 != initial_pi.shape[0] or initial_pi.shape[1] != problem.individuals.D:
-            raise ValueError("pi is not of the correct dimension. Should be {} x {}.".format(k2, problem.individuals.D))
+        if problem.individuals.D == 0 and initial_pi is not None:
+            raise ValueError("pi should be None - there are no demographics.")
 
-        self._k2 = k2
+        if problem.individuals.D > 0 and initial_pi is None:
+            raise ValueError("Must specify an initial pi matrix.")
+
+        if initial_pi is not None and (k2 != initial_pi.shape[0] or initial_pi.shape[1] != problem.individuals.D):
+            raise ValueError("pi is not of the correct dimension. Should be {} x {}.".format(k2, problem.individuals.D))
 
         # Sigma should be lower triangle
         sigma = np.tril(initial_sigma)
 
-        # Sigma is a K2 x K2 matrix and Pi is a K2 x D matrix so
-        # both are compressed into a K2 x (K2 + D) matrix
-        self._data = np.hstack((sigma, initial_pi))
+        if initial_pi is None:
+            self._data = sigma
+            self.sigma = self._data
+            self.pi = None
+        else:
+            # Sigma is a K2 x K2 matrix and Pi is a K2 x D matrix so
+            # both are compressed into a K2 x (K2 + D) matrix
+            self._data = np.hstack((sigma, initial_pi))
+            self.sigma = self._data[:, :k2]
+            self.pi = self._data[:, k2:]
 
         self.fixed: List[Parameter] = []
         self.unfixed: List[Parameter] = []
+
         self._store(SigmaParameter, zip(*np.tril_indices_from(self.sigma)), zip(*np.nonzero(self.sigma)))
-        self._store(PiParameter, np.ndindex(self.pi.shape), zip(*np.nonzero(self.pi)))
+        if self.pi is not None:
+            self._store(PiParameter, np.ndindex(self.pi.shape), zip(*np.nonzero(self.pi)))
+
         self.P = len(self.unfixed)
         self._unfixed_params_indices = np.flatnonzero(self._data)
-
-    @property
-    def sigma(self) -> Matrix:
-        return self._data[:, :self._k2]
-
-    @property
-    def pi(self):
-        return self._data[:, self._k2:]
 
     @property
     def optimiser_parameters(self):

@@ -26,7 +26,7 @@ class NumericalIntegration:
 
 
 class MonteCarloIntegration(NumericalIntegration):
-    def __init__(self, ns: int):
+    def __init__(self, ns: int = 200):
         self._ns = ns
 
     def build(self, dimensions: int, state: np.random.RandomState) -> Tuple[Matrix, Optional[Vector]]:

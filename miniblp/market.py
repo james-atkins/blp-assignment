@@ -3,7 +3,6 @@ from typing import Optional, Tuple
 import numpy as np
 from scipy import linalg
 
-from miniblp.iteration import IterationResult
 from .common import Vector, Theta2, Matrix
 from .data import Individuals, Products
 from .iteration import Iteration, IterationResult
@@ -36,12 +35,9 @@ class Market:
         return f"<Market: {self.name}>"
 
     def compute_mu(self, theta2: Theta2) -> Matrix:
-        pi = theta2.pi
-        sigma = theta2.sigma
-
-        random_coefficients = sigma @ self.individuals.nodes.T
+        random_coefficients = theta2.sigma @ self.individuals.nodes.T
         if self.individuals.D > 0:
-            random_coefficients += pi @ self.individuals.demographics.T
+            random_coefficients += theta2.pi @ self.individuals.demographics.T
 
         return self.products.X2 @ random_coefficients
 
@@ -74,7 +70,7 @@ class Market:
         # Integrate over agents to calculate the market share
         return choice_probabilities @ self.individuals.weights
 
-    def solve_demand(self, theta2: Theta2, iteration: Iteration, compute_jacobian: bool, initial_delta: Optional[Vector] = None) -> Tuple[IterationResult, Optional[Matrix]]:
+    def solve_demand(self, theta2: Theta2, iteration: Iteration, compute_jacobian: bool, initial_delta: Vector) -> Tuple[IterationResult, Optional[Matrix]]:
         # Solve the contraction mapping
         mu = self.compute_mu(theta2)
         result = self.compute_delta(mu, iteration, initial_delta)
@@ -87,7 +83,7 @@ class Market:
 
         return result, jacobian
 
-    def compute_delta(self, mu: Vector, iteration: Iteration, initial_delta: Optional[Vector] = None) -> IterationResult:
+    def compute_delta(self, mu: Vector, iteration: Iteration, initial_delta: Vector) -> IterationResult:
         """ Compute the mean utility for this market that equates observed and predicted market shares. """
 
         # Use closed form solution if no heterogeneity
@@ -97,9 +93,6 @@ class Market:
         def contraction(delta: Vector) -> Vector:
             computed_market_shares = self.compute_market_shares(delta, mu)
             return delta + self.log_market_shares - np.log(computed_market_shares)
-
-        if initial_delta is None:
-            initial_delta = self.logit_delta
 
         return iteration.iterate(initial_delta, contraction)
 

@@ -1,6 +1,6 @@
 import itertools
 from dataclasses import dataclass
-from typing import Optional, Iterator, List, Tuple
+from typing import Optional, Iterator, List, Tuple, NamedTuple, NewType
 
 import numpy as np
 import pandas as pd
@@ -12,6 +12,15 @@ from .common import Vector, Matrix, is_vector, is_matrix, are_same_length
 from .integration import NumericalIntegration
 
 
+class ProductFormulation(NamedTuple):
+    linear: str
+    random: str
+    instruments: str
+
+
+DemographicsFormulation = NewType("DemographicsFormulation", str)
+
+
 @dataclass
 class Products:
     market_ids: Vector
@@ -20,6 +29,7 @@ class Products:
     X1: Matrix
     X2: Matrix
     Z: Matrix
+    # TODO: Use a structured array for data locality reasons?
 
     def __post_init__(self):
         assert is_vector(self.market_ids)
@@ -32,9 +42,10 @@ class Products:
 
         self.J, self.K1 = self.X1.shape
         _, self.K2 = self.X2.shape
+        self.MD = self.Z.shape[1]
 
     @classmethod
-    def from_formula(cls, linear_coefficients: str, random_coefficients: str, instruments: str, data: pd.DataFrame):
+    def from_formula(cls, product_formulation: ProductFormulation, data: pd.DataFrame):
         try:
             data = data.sort_values(by="market_id").reset_index()
         except KeyError:
@@ -53,8 +64,8 @@ class Products:
             raise KeyError("Product data must have a market_share field.")
 
         # Build matrices
-        X1 = patsy.dmatrix(linear_coefficients, data, NA_action="raise", eval_env=2)
-        X2 = patsy.dmatrix(random_coefficients, data, NA_action="raise", eval_env=2)
+        X1 = patsy.dmatrix(product_formulation.linear, data, NA_action="raise", eval_env=2)
+        X2 = patsy.dmatrix(product_formulation.random, data, NA_action="raise", eval_env=2)
 
         # Sanity checks to stop doing something stupid
         if "market_share" in X1.design_info.column_names:
@@ -65,7 +76,7 @@ class Products:
             raise ValueError("price must be included in X1 or X2.")
 
         # Build instruments from exogenous variables (excluding price) and instruments
-        w = patsy.dmatrix(instruments, data, NA_action="raise", eval_env=2)
+        w = patsy.dmatrix(product_formulation.instruments, data, NA_action="raise", eval_env=2)
         zd_terms = [term for term in itertools.chain(X1.design_info.terms, w.design_info.terms) if term.name() != "price"]
         Z = patsy.dmatrix(patsy.ModelDesc([], zd_terms), data, NA_action="raise", eval_env=2)
 
@@ -86,54 +97,72 @@ class Individuals:
     market_ids: Vector  # IDs that associate individuals with markets.
     weights: Vector  # I
     nodes: Matrix  # I x D
-    demographics: Matrix  # I x D
+    demographics: Optional[Matrix]  # I x D
 
     def __post_init__(self):
         assert is_vector(self.market_ids)
         assert self.weights is None or is_vector(self.weights)
         assert is_matrix(self.nodes)
-        assert is_matrix(self.demographics)
+        assert self.demographics is None or is_matrix(self.demographics)
         assert are_same_length(self.weights, self.nodes, self.demographics)
 
-        self.I, self.D = self.demographics.shape
+        self.I = len(self.weights)
+
+        if self.demographics is not None:
+            _, self.D = self.demographics.shape
+        else:
+            self.D = 0
 
     @classmethod
-    def from_formula(cls, demographics_formula: str, demographics_data: pd.DataFrame,
+    def from_formula(cls, demographics_formulation: DemographicsFormulation, demographics_data: pd.DataFrame,
                      products: Products, integration: NumericalIntegration,
                      seed: Optional[int] = None) -> "Individuals":
 
-        try:
-            demographics_data = demographics_data.sort_values(by="market_id").reset_index()
-        except KeyError:
-            raise KeyError("Demographics data must have a market_id field.")
+        if (demographics_formulation is None and demographics_data is not None) or (demographics_formulation is not None and demographics_data is None):
+            raise ValueError("Both demographics_formulation and demographics_data should be None or not None")
 
-        market_ids = np.asanyarray(demographics_data["market_id"])
+        if demographics_formulation is not None:
+            try:
+                demographics_data = demographics_data.sort_values(by="market_id").reset_index()
+            except KeyError:
+                raise KeyError("Demographics data must have a market_id field.")
 
-        if set(np.unique(products.market_ids)) > set(np.unique(market_ids)):
-            raise ValueError("There are product markets with no corresponding demographic data.")
+            market_ids = np.asanyarray(demographics_data["market_id"])
+
+            if set(np.unique(products.market_ids)) > set(np.unique(market_ids)):
+                raise ValueError("There are product markets with no corresponding demographic data.")
+
+        else:
+            market_ids = np.asanyarray(products.market_ids)
+
+        state = np.random.RandomState(seed=seed)
 
         # Generate random taste shocks
-        state = np.random.RandomState(seed=seed)
         market_ids, nodes, weights = integration.build_many(products.K2, np.unique(market_ids), state)
 
-        # Randomly sample demographic data
-        demographics_list = []
-        for market_id in np.unique(market_ids):
-            demographics = demographics_data[demographics_data["market_id"] == market_id]
-            num_sampled = np.sum(market_ids == market_id)
-            demographics_list.append(demographics.sample(num_sampled, replace=True))
+        if demographics_formulation is not None:
+            demographics_list = []
+            for market_id, num in zip(*np.unique(market_ids, return_counts=True)):
+                demographics = demographics_data[demographics_data["market_id"] == market_id]
+                if num == len(demographics):
+                    demographics_list.append(demographics)
+                else:
+                    # Randomly sample demographic data
+                    demographics_list.append(demographics.sample(num, replace=True, random_state=state))
 
-        drawn_demographics = pd.concat(demographics_list)
+            drawn_demographics = pd.concat(demographics_list)
 
-        # Build from formula
-        demographics = patsy.dmatrix(demographics_formula, drawn_demographics)
+            # Build from formula
+            demographics = patsy.dmatrix(demographics_formulation, drawn_demographics)
+        else:
+            demographics = None
 
         return cls(market_ids=market_ids, weights=weights, nodes=nodes, demographics=demographics)
 
     def split_markets(self) -> Iterator["Individuals"]:
-        if self.weights is None:
-            for market_ids, nodes, demographics in _split_markets(self.market_ids, self.nodes, self.demographics):
-                yield Individuals(market_ids, None, nodes, demographics)
+        if self.demographics is None:
+            for market_ids, weights, nodes in _split_markets(self.market_ids, self.weights, self.nodes):
+                yield Individuals(market_ids, weights, nodes, None)
         else:
             for arrays in _split_markets(self.market_ids, self.weights, self.nodes, self.demographics):
                 yield Individuals(*arrays)

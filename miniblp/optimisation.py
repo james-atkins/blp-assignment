@@ -1,17 +1,11 @@
 from dataclasses import dataclass
-from typing import Callable, NamedTuple, Optional, Union
+from typing import Callable, NamedTuple, Optional, Union, Tuple
 
 import scipy.optimize
 
 from .common import Matrix, Vector
 
-
-class ObjectiveResult(NamedTuple):
-    objective: float
-    gradient: Optional[Matrix]
-
-
-ObjectiveFunction = Callable[[Vector, bool], Union[ObjectiveResult, float]]
+ObjectiveFunction = Callable[[Vector, bool], Union[Tuple[float, Matrix], float]]
 
 
 @dataclass
