@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Callable, Optional
+import enum
+from typing import Callable, Optional, NamedTuple
 
 import numpy as np
 from numba import njit
@@ -9,12 +9,16 @@ from .common import Vector
 Contraction = Callable[[Vector], Vector]
 
 
-@dataclass
-class IterationResult:
+class IterationError(enum.IntEnum):
+    NUMERICAL_ISSUES = enum.auto()
+    EXCEEDED_MAXIMUM_ITERATIONS = enum.auto()
+
+
+class IterationResult(NamedTuple):
     final_delta: Vector
     iterations: int = 0
     evaluations: int = 0
-    error_message: Optional[str] = None
+    error_message: Optional[IterationError] = None
 
     @property
     def success(self) -> bool:
@@ -33,20 +37,24 @@ class SimpleFixedPointIteration(Iteration):
         self.max_iterations = max_iterations
 
     def iterate(self, x0: Vector, contraction: Contraction) -> IterationResult:
+        return self._iterate(x0, contraction, self.tolerance, self.max_iterations)
+
+    @staticmethod
+    def _iterate(x0: Vector, contraction: Contraction, tolerance: float, max_iterations: int) -> IterationResult:
         x = x0
         iterations: int = 0
 
         while True:
-            if iterations > self.max_iterations:
-                return IterationResult(x, iterations, iterations, "Exceeded the maximum number of iterations")
+            if iterations > max_iterations:
+                return IterationResult(x, iterations, iterations, IterationError.EXCEEDED_MAXIMUM_ITERATIONS)
 
             x_next = contraction(x)
             iterations += 1
 
             if not np.isfinite(x_next).all():
-                return IterationResult(x, iterations, iterations, "Numerical issues detected.")
+                return IterationResult(x, iterations, iterations, IterationError.NUMERICAL_ISSUES)
 
-            if within_tolerance(x, x_next, self.tolerance):
+            if within_tolerance(x, x_next, tolerance):
                 return IterationResult(x_next, iterations, iterations)
 
             x = x_next
@@ -64,13 +72,13 @@ class PhasedToleranceIteration(Iteration):
 
         while True:
             if iterations > self.max_iterations:
-                return IterationResult(x, iterations, iterations, "Exceeded the maximum number of iterations")
+                return IterationResult(x, iterations, iterations, IterationError.EXCEEDED_MAXIMUM_ITERATIONS)
 
             x_next = contraction(x)
             iterations += 1
 
             if not np.isfinite(x_next).all():
-                return IterationResult(x, iterations, iterations, "Numerical issues detected.")
+                return IterationResult(x, iterations, iterations, IterationError.NUMERICAL_ISSUES)
 
             if within_tolerance(x, x_next, tolerance):
                 return IterationResult(x_next, iterations, iterations)
@@ -110,14 +118,14 @@ class SQUAREMIteration(Iteration):
             # first step
             x0, x = x, contraction(x)
             if not np.isfinite(x).all():
-                return IterationResult(x, iterations, evaluations, "Numerical issues detected.")
+                return IterationResult(x, iterations, evaluations, IterationError.NUMERICAL_ISSUES)
 
             # check for convergence
             g0 = x - x0
             evaluations += 1
 
             if evaluations > self.max_evaluations:
-                return IterationResult(x, iterations, evaluations, "Exceeded the maximum number of evaluations")
+                return IterationResult(x, iterations, evaluations, IterationError.EXCEEDED_MAXIMUM_ITERATIONS)
 
             if within_tolerance(x0, x, self.tolerance):
                 return IterationResult(x, iterations, evaluations)
@@ -125,14 +133,14 @@ class SQUAREMIteration(Iteration):
             # second step
             x1, x = x, contraction(x)
             if not np.isfinite(x).all():
-                return IterationResult(x, iterations, evaluations, "Numerical issues detected.")
+                return IterationResult(x, iterations, evaluations, IterationError.NUMERICAL_ISSUES)
 
             # check for convergence
             g1 = x - x1
             evaluations += 1
 
             if evaluations > self.max_evaluations:
-                return IterationResult(x, iterations, evaluations, "Exceeded the maximum number of evaluations")
+                return IterationResult(x, iterations, evaluations, IterationError.EXCEEDED_MAXIMUM_ITERATIONS)
 
             if within_tolerance(x1, x, self.tolerance):
                 return IterationResult(x, iterations, evaluations)
@@ -158,14 +166,14 @@ class SQUAREMIteration(Iteration):
             x2, x = x, x0 - 2 * alpha * r + alpha ** 2 * v
             x3, x = x, contraction(x)
             if not np.isfinite(x).all():
-                return IterationResult(x, iterations, evaluations, "Numerical issues detected.")
+                return IterationResult(x, iterations, evaluations, IterationError.NUMERICAL_ISSUES)
 
             iterations += 1
 
             # check for convergence
             evaluations += 1
             if evaluations > self.max_evaluations:
-                return IterationResult(x, iterations, evaluations, "Exceeded the maximum number of evaluations")
+                return IterationResult(x, iterations, evaluations, IterationError.EXCEEDED_MAXIMUM_ITERATIONS)
 
             if within_tolerance(x, x - x3, self.tolerance):
                 return IterationResult(x, iterations, evaluations)
