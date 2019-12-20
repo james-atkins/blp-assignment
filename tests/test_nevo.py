@@ -26,9 +26,10 @@ problem = miniblp.Problem(
 
 def test_sigma_ones(capsys):
     # squarem = miniblp.iteration.SQUAREMIteration()
-    iteration = miniblp.iteration.SimpleFixedPointIteration()
+    # iteration = miniblp.iteration.SimpleFixedPointIteration()
     optimisation = miniblp.optimisation.SciPyOptimisation("BFGS", gtol=1e-10)
     # optimisation = miniblp.optimisation.SciPyOptimisation("Nelder-Mead")
+    iteration = miniblp.iteration.NewSimpleIteration()
 
     with capsys.disabled():
         result = problem.solve(sigma=np.ones((4, 4)), iteration=iteration, optimisation=optimisation)

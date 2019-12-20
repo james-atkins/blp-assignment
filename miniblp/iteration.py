@@ -4,7 +4,7 @@ from typing import Callable, Optional, NamedTuple
 import numpy as np
 from numba import njit
 
-from .common import Vector
+from .common import Vector, Matrix
 
 Contraction = Callable[[Vector], Vector]
 
@@ -25,8 +25,42 @@ class IterationResult(NamedTuple):
         return self.error_message is None
 
 
+NewContraction = Callable[[Matrix, Vector], Vector]
+
+
+class NewSimpleIteration:
+    def __init__(self, max_iterations: int = 5000, tolerance: float = 1e-14):
+        self.tolerance = tolerance
+        self.max_iterations = max_iterations
+
+    def iterate(self, contraction: NewContraction, mu: Matrix, x0: Vector):
+        return self._iterate(contraction, mu, x0, tolerance=self.tolerance, max_iterations=self.max_iterations)
+
+    @staticmethod
+    @njit
+    def _iterate(contraction: NewContraction, mu: Matrix, x0: Vector, *, tolerance: float, max_iterations: int) -> IterationResult:
+        x = x0
+        iterations: int = 0
+
+        while True:
+            if iterations > max_iterations:
+                return IterationResult(x, iterations, iterations, IterationError.EXCEEDED_MAXIMUM_ITERATIONS)
+
+            x_next = contraction(mu, x)
+            iterations += 1
+
+            if not np.isfinite(x_next).all():
+                return IterationResult(x, iterations, iterations, IterationError.NUMERICAL_ISSUES)
+
+            if within_tolerance(x, x_next, tolerance):
+                return IterationResult(x_next, iterations, iterations)
+
+            x = x_next
+
+
 class Iteration:
     """ Fixed point iteration. """
+
     def iterate(self, x0: Vector, contraction: Contraction) -> IterationResult:
         raise NotImplementedError
 
@@ -99,7 +133,8 @@ class SQUAREMIteration(Iteration):
     Based on the pyblp code, Varadhan and Roland (2008)
     """
 
-    def __init__(self, max_evaluations: int = 5000, tolerance: float = 1e-14, scheme: int = 3, step_min: float = 1.0, step_max: float = 1.0, step_factor: float = 4.0):
+    def __init__(self, max_evaluations: int = 5000, tolerance: float = 1e-14, scheme: int = 3, step_min: float = 1.0,
+                 step_max: float = 1.0, step_factor: float = 4.0):
         self.max_evaluations = max_evaluations
         self.tolerance = tolerance
         self.scheme = scheme

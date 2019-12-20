@@ -1,7 +1,8 @@
 from typing import Optional, Tuple, Callable
 
+import numba
 import numpy as np
-from numba import njit
+from numba import njit, jitclass
 from scipy import linalg
 
 from .common import Vector, Theta2, Matrix
@@ -57,9 +58,8 @@ class Market:
         if self.products.K2 == 0:
             return IterationResult(self.logit_delta)
         else:
-            contraction = make_contraction(mu=mu, individual_weights=self.individuals.weights,
-                                           log_market_shares=self.log_market_shares)
-            return iteration.iterate(initial_delta, contraction)
+            contraction = NewContraction(self.individuals.weights, self.log_market_shares)
+            return iteration.iterate(contraction, mu, initial_delta)
 
     def solve_demand(self, theta2: Theta2, iteration: Iteration, compute_jacobian: bool, initial_delta: Vector) -> Tuple[IterationResult, Optional[Matrix]]:
         # Solve the contraction mapping
@@ -127,6 +127,19 @@ def _jit_compute_choice_probabilities_safe(delta: Vector, mu: Matrix) -> Matrix:
 def _jit_compute_market_shares(delta: Vector, mu: Matrix, individual_weights: Vector) -> Vector:
     choice_probabilities = _jit_compute_choice_probabilities(delta, mu)
     return choice_probabilities @ individual_weights  # Integrate over agents to calculate the market share
+
+
+@jitclass([("individual_weights", numba.float64[:]), ("log_market_shares", numba.float64[:])])
+class NewContraction:
+    # mu: Matrix, individual_weights: Vector, log_market_shares: Vector,
+
+    def __init__(self, individual_weights: Vector, log_market_shares: Vector):
+        self.individual_weights = individual_weights
+        self.log_market_shares = log_market_shares
+
+    def __call__(self, mu: Matrix, delta: Vector):
+        computed_market_shares = _jit_compute_market_shares(delta, mu, self.individual_weights)
+        return delta + self.log_market_shares - np.log(computed_market_shares)
 
 
 def make_contraction(*, mu: Matrix, individual_weights: Vector, log_market_shares: Vector) -> Contraction:
