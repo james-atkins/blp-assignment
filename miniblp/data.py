@@ -1,12 +1,11 @@
 import itertools
 from dataclasses import dataclass
-from typing import Optional, Iterator, List, Tuple, NamedTuple, NewType
+from typing import Optional, Iterator, Tuple, NamedTuple, NewType
 
 import numpy as np
 import pandas as pd
 import patsy
 from numpy.linalg import matrix_rank
-from scipy import linalg
 
 from .common import Vector, Matrix, is_vector, is_matrix, are_same_length
 from .integration import NumericalIntegration

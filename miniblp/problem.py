@@ -1,19 +1,18 @@
 import io
 import math
 import time
-from dataclasses import dataclass
-from typing import Optional, List, Tuple, Union, NamedTuple, NewType, Iterable
+from typing import Optional, List, Tuple, Union, NamedTuple
 
 import numpy as np
 import pandas as pd
 import scipy.linalg as linalg
 
-from .integration import NumericalIntegration, MonteCarloIntegration
-from .optimisation import Optimisation, OptimisationResult, SciPyOptimisation
-from .common import Matrix, Vector, Theta1, Theta2, is_vector
+from .common import Matrix, Vector, Theta1, Theta2
 from .data import Products, Individuals, ProductFormulation, DemographicsFormulation
+from .integration import NumericalIntegration, MonteCarloIntegration
 from .iteration import Iteration, SimpleFixedPointIteration
 from .market import Market
+from .optimisation import Optimisation, OptimisationResult, SciPyOptimisation
 
 FLOAT_FORMAT_STRING = "{:.2E}"
 
