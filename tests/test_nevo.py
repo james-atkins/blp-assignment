@@ -25,14 +25,11 @@ problem = miniblp.Problem(
 
 
 def test_sigma_ones(capsys):
-    # squarem = miniblp.iteration.SQUAREMIteration()
-    # iteration = miniblp.iteration.SimpleFixedPointIteration()
+    iteration = miniblp.iteration.SQUAREMIteration()
     optimisation = miniblp.optimisation.SciPyOptimisation("BFGS", gtol=1e-10)
-    # optimisation = miniblp.optimisation.SciPyOptimisation("Nelder-Mead")
-    iteration = miniblp.iteration.NewSimpleIteration()
 
     with capsys.disabled():
         result = problem.solve(sigma=np.ones((4, 4)), iteration=iteration, optimisation=optimisation)
         print(result)
 
-    assert result.beta_estimates.loc["price", "estimate"] == -3.10E1
+    np.testing.assert_approx_equal(result.beta_estimates.loc["price", "estimate"], -3.10E1, significant=3)

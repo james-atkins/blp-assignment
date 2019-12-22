@@ -1,10 +1,11 @@
 import enum
+import math
 from typing import Callable, Optional, NamedTuple
 
 import numpy as np
 from numba import njit
 
-from .common import Vector, Matrix
+from .common import Vector
 
 Contraction = Callable[[Vector], Vector]
 
@@ -25,39 +26,6 @@ class IterationResult(NamedTuple):
         return self.error_message is None
 
 
-NewContraction = Callable[[Matrix, Vector], Vector]
-
-
-class NewSimpleIteration:
-    def __init__(self, max_iterations: int = 5000, tolerance: float = 1e-14):
-        self.tolerance = tolerance
-        self.max_iterations = max_iterations
-
-    def iterate(self, contraction: NewContraction, mu: Matrix, x0: Vector):
-        return self._iterate(contraction, mu, x0, tolerance=self.tolerance, max_iterations=self.max_iterations)
-
-    @staticmethod
-    @njit
-    def _iterate(contraction: NewContraction, mu: Matrix, x0: Vector, *, tolerance: float, max_iterations: int) -> IterationResult:
-        x = x0
-        iterations: int = 0
-
-        while True:
-            if iterations > max_iterations:
-                return IterationResult(x, iterations, iterations, IterationError.EXCEEDED_MAXIMUM_ITERATIONS)
-
-            x_next = contraction(mu, x)
-            iterations += 1
-
-            if not np.isfinite(x_next).all():
-                return IterationResult(x, iterations, iterations, IterationError.NUMERICAL_ISSUES)
-
-            if within_tolerance(x, x_next, tolerance):
-                return IterationResult(x_next, iterations, iterations)
-
-            x = x_next
-
-
 class Iteration:
     """ Fixed point iteration. """
 
@@ -71,24 +39,20 @@ class SimpleFixedPointIteration(Iteration):
         self.max_iterations = max_iterations
 
     def iterate(self, x0: Vector, contraction: Contraction) -> IterationResult:
-        return self._iterate(x0, contraction, self.tolerance, self.max_iterations)
-
-    @staticmethod
-    def _iterate(x0: Vector, contraction: Contraction, tolerance: float, max_iterations: int) -> IterationResult:
         x = x0
         iterations: int = 0
 
         while True:
-            if iterations > max_iterations:
+            if iterations > self.max_iterations:
                 return IterationResult(x, iterations, iterations, IterationError.EXCEEDED_MAXIMUM_ITERATIONS)
 
             x_next = contraction(x)
             iterations += 1
 
-            if not np.isfinite(x_next).all():
+            if numerical_issues(x_next):
                 return IterationResult(x, iterations, iterations, IterationError.NUMERICAL_ISSUES)
 
-            if within_tolerance(x, x_next, tolerance):
+            if within_tolerance(x, x_next, self.tolerance):
                 return IterationResult(x_next, iterations, iterations)
 
             x = x_next
@@ -111,7 +75,7 @@ class PhasedToleranceIteration(Iteration):
             x_next = contraction(x)
             iterations += 1
 
-            if not np.isfinite(x_next).all():
+            if numerical_issues(x_next):
                 return IterationResult(x, iterations, iterations, IterationError.NUMERICAL_ISSUES)
 
             if within_tolerance(x, x_next, tolerance):
@@ -152,7 +116,7 @@ class SQUAREMIteration(Iteration):
         while True:
             # first step
             x0, x = x, contraction(x)
-            if not np.isfinite(x).all():
+            if numerical_issues(x):
                 return IterationResult(x, iterations, evaluations, IterationError.NUMERICAL_ISSUES)
 
             # check for convergence
@@ -167,7 +131,7 @@ class SQUAREMIteration(Iteration):
 
             # second step
             x1, x = x, contraction(x)
-            if not np.isfinite(x).all():
+            if numerical_issues(x):
                 return IterationResult(x, iterations, evaluations, IterationError.NUMERICAL_ISSUES)
 
             # check for convergence
@@ -200,7 +164,7 @@ class SQUAREMIteration(Iteration):
             # acceleration step
             x2, x = x, x0 - 2 * alpha * r + alpha ** 2 * v
             x3, x = x, contraction(x)
-            if not np.isfinite(x).all():
+            if numerical_issues(x):
                 return IterationResult(x, iterations, evaluations, IterationError.NUMERICAL_ISSUES)
 
             iterations += 1
@@ -230,3 +194,12 @@ def within_tolerance(x: Vector, x_next: Vector, tolerance: float) -> bool:
             return False
 
     return True
+
+
+@njit
+def numerical_issues(x: Vector) -> bool:
+    for e in x:
+        if not math.isfinite(e):
+            return True
+    
+    return False
