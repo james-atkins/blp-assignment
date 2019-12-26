@@ -200,7 +200,6 @@ class Problem:
         W = result_stage_1.compute_weighting_matrix_heteroscedasticity()
 
         print("Running GMM step 2...")
-        # TODO: Should we use the computed value of Theta2 as starting point?
         result_stage_2 = self._gmm_step(
             theta2=result_stage_1.theta2,
             initial_deltas=initial_deltas,
