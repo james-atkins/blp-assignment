@@ -29,10 +29,10 @@ Theta1: Type[np.ndarray] = np.ndarray
 
 class Parameter:
     def __init__(self, index: Tuple[int, int]):
-        self._index = index
+        self.index = index
 
     def product_characteristic(self, market: "Market") -> Vector:
-        return market.products.X2[:, [self._index[0]]]
+        return market.products.X2[:, [self.index[0]]]
 
     def agent_characteristic(self, market: "Market") -> Vector:
         """Get the agent characteristic associated with the parameter."""
@@ -42,13 +42,13 @@ class Parameter:
 class SigmaParameter(Parameter):
     """ Information about a single parameter in sigma. """
     def agent_characteristic(self, market: "Market") -> Vector:
-        return market.individuals.nodes[:, [self._index[1]]]
+        return market.individuals.nodes[:, [self.index[1]]]
 
 
 class PiParameter(Parameter):
     """ Information about a single parameter in pi. """
     def agent_characteristic(self, market: "Market") -> Vector:
-        return market.individuals.demographics[:, [self._index[1]]]
+        return market.individuals.demographics[:, [self.index[1]]]
 
 
 class Theta2:
@@ -90,19 +90,19 @@ class Theta2:
             self._store(PiParameter, np.ndindex(self.pi.shape), zip(*np.nonzero(self.pi)))
 
         self.P = len(self.unfixed)
-        self._unfixed_params_indices = np.flatnonzero(self._data)
 
     @property
     def optimiser_parameters(self):
         """ Parameters to be optimised over. """
-        return self._data.ravel()[self._unfixed_params_indices]
+        return np.array([self._data[param.index] for param in self.unfixed])
 
     @optimiser_parameters.setter
     def optimiser_parameters(self, values):
-        if values.shape != self._unfixed_params_indices.shape:
+        if values.shape != (len(self.unfixed), ):
             raise ValueError("optimiser_parameters have the wrong shape.")
 
-        self._data.put(self._unfixed_params_indices, values)
+        for param, value in zip(self.unfixed, values):
+            self._data[param.index] = value
 
     def _store(self, parameter_cls: Type[Parameter], indices: Iterable[Tuple[int, int]], non_zero: Iterable[Tuple[int, int]]):
         non_zero = list(non_zero)
