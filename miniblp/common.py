@@ -31,6 +31,9 @@ class Parameter:
     def __init__(self, index: Tuple[int, int]):
         self.index = index
 
+    def __repr__(self):
+        return f"<{self.__class__.__name__}({self.index})>"
+
     def product_characteristic(self, market: "Market") -> Vector:
         return market.products.X2[:, [self.index[0]]]
 
@@ -71,16 +74,8 @@ class Theta2:
         # Sigma should be lower triangle
         sigma = np.tril(initial_sigma)
 
-        if initial_pi is None:
-            self._data = sigma
-            self.sigma = self._data
-            self.pi = None
-        else:
-            # Sigma is a K2 x K2 matrix and Pi is a K2 x D matrix so
-            # both are compressed into a K2 x (K2 + D) matrix
-            self._data = np.hstack((sigma, initial_pi))
-            self.sigma = self._data[:, :k2]
-            self.pi = self._data[:, k2:]
+        self.sigma = sigma
+        self.pi = initial_pi
 
         self.fixed: List[Parameter] = []
         self.unfixed: List[Parameter] = []
@@ -94,7 +89,17 @@ class Theta2:
     @property
     def optimiser_parameters(self):
         """ Parameters to be optimised over. """
-        return np.array([self._data[param.index] for param in self.unfixed])
+        params = np.empty(len(self.unfixed))
+
+        for i, param in enumerate(self.unfixed):
+            if isinstance(param, SigmaParameter):
+                params[i] = self.sigma[param.index]
+            elif isinstance(param, PiParameter):
+                params[i] = self.pi[param.index]
+            else:
+                raise ValueError("Unknown parameter type")
+
+        return params
 
     @optimiser_parameters.setter
     def optimiser_parameters(self, values):
@@ -102,7 +107,12 @@ class Theta2:
             raise ValueError("optimiser_parameters have the wrong shape.")
 
         for param, value in zip(self.unfixed, values):
-            self._data[param.index] = value
+            if isinstance(param, SigmaParameter):
+                self.sigma[param.index] = value
+            elif isinstance(param, PiParameter):
+                self.pi[param.index] = value
+            else:
+                raise ValueError("Unknown parameter type")
 
     def _store(self, parameter_cls: Type[Parameter], indices: Iterable[Tuple[int, int]], non_zero: Iterable[Tuple[int, int]]):
         non_zero = list(non_zero)
