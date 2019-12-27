@@ -23,6 +23,19 @@ problem = miniblp.Problem(
     seed=0
 )
 
+demographic_formulation = miniblp.DemographicsFormulation("0 + income + income_squared + age + child")
+nevo_integration = miniblp.integration.PrecomputedIntegration(
+    individual_data,
+    nodes=[f"nodes{i}" for i in range(0, 4)],
+    weights="weights"
+)
+
+nevo_problem = miniblp.Problem(
+    product_formulation, product_data,
+    demographic_formulation, individual_data,
+    integration=nevo_integration
+)
+
 
 def test_sigma_ones(capsys):
     iteration = miniblp.iteration.SQUAREMIteration()
@@ -33,3 +46,27 @@ def test_sigma_ones(capsys):
         print(result)
 
     np.testing.assert_approx_equal(result.beta_estimates.loc["price", "estimate"], -3.10E1, significant=3)
+
+
+def test_nevo(capsys):
+    iteration = miniblp.iteration.SQUAREMIteration()
+    optimisation = miniblp.optimisation.SciPyOptimisation("BFGS", gtol=1e-10)
+
+    initial_sigma = np.diag([0.3302, 2.4526, 0.0163, 0.2441])
+    initial_pi = np.array([
+        [5.4819, 0, 0.2037, 0],
+        [15.8935, -1.2000, 0, 2.6342],
+        [-0.2506, 0, 0.0511, 0],
+        [1.2650, 0, -0.8091, 0]
+    ])
+
+    theta2 = miniblp.Theta2(nevo_problem, initial_sigma, initial_pi)
+    assert len(theta2.unfixed) == 4 + 9
+    assert len(theta2.fixed) == 6 + 7
+
+    with capsys.disabled():
+        print(nevo_problem)
+        result = nevo_problem.solve(sigma=initial_sigma, pi=initial_pi, iteration=iteration, optimisation=optimisation, method="1s")
+        print(result)
+
+    np.testing.assert_approx_equal(result.beta_estimates.loc["price", "estimate"], -6.27E+01, significant=3)

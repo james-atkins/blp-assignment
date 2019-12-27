@@ -120,39 +120,33 @@ class Individuals:
         if (demographics_formulation is None and demographics_data is not None) or (demographics_formulation is not None and demographics_data is None):
             raise ValueError("Both demographics_formulation and demographics_data should be None or not None")
 
-        if demographics_formulation is not None:
-            try:
-                demographics_data = demographics_data.sort_values(by="market_id").reset_index()
-            except KeyError:
-                raise KeyError("Demographics data must have a market_id field.")
-
-            market_ids = np.asanyarray(demographics_data["market_id"])
-
-            if set(np.unique(products.market_ids)) > set(np.unique(market_ids)):
-                raise ValueError("There are product markets with no corresponding demographic data.")
-
-        else:
-            market_ids = np.asanyarray(products.market_ids)
-
         state = np.random.RandomState(seed=seed)
 
         # Generate random taste shocks
-        market_ids, nodes, weights = integration.build(products.K2, np.unique(market_ids), state)
+        market_ids, nodes, weights = integration.build(products.K2, np.unique(products.market_ids), state)
 
         if demographics_formulation is not None:
+            try:
+                demographics_market_ids = np.asanyarray(demographics_data["market_id"])
+            except KeyError:
+                raise KeyError("Demographics data must have a market_id field.")
+
+            if set(np.unique(products.market_ids)) > set(np.unique(demographics_market_ids)):
+                raise ValueError("There are product markets with no corresponding demographic data.")
+
             demographics_list = []
-            for market_id, num in zip(*np.unique(market_ids, return_counts=True)):
+            for market_id, num_individuals in zip(*np.unique(market_ids, return_counts=True)):
                 demographics = demographics_data[demographics_data["market_id"] == market_id]
-                if num == len(demographics):
+                if num_individuals == len(demographics):
                     demographics_list.append(demographics)
                 else:
                     # Randomly sample demographic data
-                    demographics_list.append(demographics.sample(num, replace=True, random_state=state))
+                    demographics_list.append(demographics.sample(num_individuals, replace=True, random_state=state))
 
             drawn_demographics = pd.concat(demographics_list)
 
             # Build from formula
-            demographics = patsy.dmatrix(demographics_formulation, drawn_demographics)
+            demographics = patsy.dmatrix(demographics_formulation, drawn_demographics, NA_action="raise")
         else:
             demographics = None
 
