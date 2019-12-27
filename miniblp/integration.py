@@ -7,30 +7,28 @@ from .common import Vector, Matrix
 
 
 class NumericalIntegration:
-    def build(self, dimensions: int, state: np.random.RandomState) -> Tuple[Matrix, Optional[Vector]]:
-        raise NotImplementedError
-
-    def build_many(self, dimensions: int, market_ids: Iterable[str], state: np.random.RandomState) -> Tuple[Vector, Matrix, Vector]:
+    def build(self, dimensions: int, market_ids: Iterable[str], state: np.random.RandomState) -> Tuple[Vector, Matrix, Vector]:
         """Build concatenated IDs, nodes, and weights for each market ID."""
-        ids_list: List[Vector] = []
-        nodes_list: List[Matrix] = []
-        weights_list: List[Vector] = []
-
-        for market_id in market_ids:
-            nodes, weights = self.build(dimensions, state)
-            ids_list.append(np.repeat(market_id, len(nodes)))
-            nodes_list.append(nodes)
-            weights_list.append(weights)
-
-        return np.concatenate(ids_list), np.vstack(nodes_list), np.concatenate(weights_list)
+        raise NotImplementedError
 
 
 class MonteCarloIntegration(NumericalIntegration):
     def __init__(self, ns: int = 200):
         self._ns = ns
 
-    def build(self, dimensions: int, state: np.random.RandomState) -> Tuple[Matrix, Optional[Vector]]:
-        return state.normal(size=(self._ns, dimensions)), np.repeat(1/self._ns, self._ns)
+    def build(self, dimensions: int, market_ids: Iterable[str], state: np.random.RandomState) -> Tuple[Vector, Matrix, Vector]:
+        """Build concatenated IDs, nodes, and weights for each market ID."""
+        ids_list: List[Vector] = []
+        nodes_list: List[Matrix] = []
+        weights_list: List[Vector] = []
+
+        for market_id in market_ids:
+            nodes, weights = state.normal(size=(self._ns, dimensions)), np.repeat(1/self._ns, self._ns)
+            ids_list.append(np.repeat(market_id, len(nodes)))
+            nodes_list.append(nodes)
+            weights_list.append(weights)
+
+        return np.concatenate(ids_list), np.vstack(nodes_list), np.concatenate(weights_list)
 
 
 class PrecomputedIntegration(NumericalIntegration):
@@ -39,7 +37,7 @@ class PrecomputedIntegration(NumericalIntegration):
         self._weights = np.asanyarray(data[weights])
         self._nodes = np.asanyarray(data[nodes])
 
-    def build_many(self, dimensions: int, market_ids: Iterable[str], state: np.random.RandomState) -> Tuple[Vector, Matrix, Optional[Vector]]:
+    def build(self, dimensions: int, market_ids: Iterable[str], state: np.random.RandomState) -> Tuple[Vector, Matrix, Optional[Vector]]:
         if dimensions > self._nodes.shape[1]:
             raise ValueError("Precomputed integration data has an insufficient number of dimensions.")
 

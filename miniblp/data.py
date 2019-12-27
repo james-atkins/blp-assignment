@@ -137,7 +137,7 @@ class Individuals:
         state = np.random.RandomState(seed=seed)
 
         # Generate random taste shocks
-        market_ids, nodes, weights = integration.build_many(products.K2, np.unique(market_ids), state)
+        market_ids, nodes, weights = integration.build(products.K2, np.unique(market_ids), state)
 
         if demographics_formulation is not None:
             demographics_list = []
