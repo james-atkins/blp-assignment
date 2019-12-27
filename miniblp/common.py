@@ -115,7 +115,7 @@ class Theta2:
                 raise ValueError("Unknown parameter type")
 
     def _store(self, parameter_cls: Type[Parameter], indices: Iterable[Tuple[int, int]], non_zero: Iterable[Tuple[int, int]]):
-        non_zero = list(non_zero)
+        non_zero = set(non_zero)
         for index in indices:
             parameter = parameter_cls(index)
             if index in non_zero:
