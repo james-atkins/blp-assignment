@@ -111,7 +111,6 @@ def _compute_choice_probabilities(delta: Vector, mu: Matrix) -> Matrix:
     Uses the the log-sum-exp trick, which is inspired from the pyblp code translated to numba.
     """
     # J x I array
-    # utilities = np.expand_dims(delta, axis=1) + mu
     utilities = np.expand_dims(delta, axis=1) + mu
 
     # Loop is equivalent to
