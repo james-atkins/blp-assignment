@@ -1,20 +1,53 @@
 import itertools
 from dataclasses import dataclass
-from typing import Optional, Iterator, Tuple, NamedTuple, NewType
+from typing import Optional, Iterator, Tuple, NamedTuple, NewType, List
 
 import numpy as np
 import pandas as pd
 import patsy
 from numpy.linalg import matrix_rank
 
-from .common import Vector, Matrix, is_vector, is_matrix, are_same_length
+from .common import Vector, Matrix, is_vector, is_matrix, are_same_length, NamedMatrix
 from .integration import NumericalIntegration
 
 
-class ProductFormulation(NamedTuple):
-    linear: str
-    random: str
-    instruments: str
+class ProductFormulation:
+    def __init__(self, linear: str, random: str, instruments: str):
+        self._linear_terms = _parse_terms(linear)
+        self._random_terms = _parse_terms(random)
+        w_terms = _parse_terms(instruments)
+        self._instrument_terms = [t for t in itertools.chain(self._linear_terms, w_terms) if t.name() != "price"]
+
+        # Sanity checks to stop doing something stupid
+        linear_term_names = {term.name() for term in self._linear_terms}
+        random_term_names = {term.name() for term in self._random_terms}
+
+        if "market_share" in linear_term_names:
+            raise ValueError("market_share cannot be included in X1.")
+        if "market_share" in random_term_names:
+            raise ValueError("market_share cannot be included in X2.")
+        if "price" not in linear_term_names or "price" not in random_term_names:
+            raise ValueError("price must be included in X1 or X2.")
+
+    def build(self, product_data: pd.DataFrame) -> Tuple[NamedMatrix, NamedMatrix, NamedMatrix]:
+        X1 = _build_matrix(self._linear_terms, product_data)
+        X2 = _build_matrix(self._random_terms, product_data)
+        Z = _build_matrix(self._instrument_terms, product_data)
+
+        return X1, X2, Z
+
+
+def _build_matrix(terms: List[patsy.desc.Term], data: pd.DataFrame) -> NamedMatrix:
+    design_info = patsy.build.design_matrix_builders([terms], lambda: iter([data]), patsy.eval.EvalEnvironment([data]))[0]
+    matrix = np.asarray(patsy.build.build_design_matrices([design_info], data, NA_action="raise")[0])
+    return NamedMatrix(matrix, design_info.column_names)
+
+
+def _parse_terms(formula: str) -> List[patsy.desc.Term]:
+    description = patsy.highlevel.ModelDesc.from_formula(formula)
+    if description.lhs_termlist:
+        raise patsy.PatsyError("Formulae should not have left-hand sides.")
+    return description.rhs_termlist
 
 
 DemographicsFormulation = NewType("DemographicsFormulation", str)
@@ -25,9 +58,9 @@ class Products:
     market_ids: Vector
     market_shares: Vector
     prices: Vector
-    X1: Matrix
-    X2: Matrix
-    Z: Matrix
+    X1: NamedMatrix
+    X2: NamedMatrix
+    Z: NamedMatrix
     # TODO: Use a structured array for data locality reasons?
 
     def __post_init__(self):
@@ -63,21 +96,7 @@ class Products:
             raise KeyError("Product data must have a market_share field.")
 
         # Build matrices
-        X1 = patsy.dmatrix(product_formulation.linear, data, NA_action="raise", eval_env=2)
-        X2 = patsy.dmatrix(product_formulation.random, data, NA_action="raise", eval_env=2)
-
-        # Sanity checks to stop doing something stupid
-        if "market_share" in X1.design_info.column_names:
-            raise ValueError("market_share cannot be included in X1.")
-        if "market_share" in X2.design_info.column_names:
-            raise ValueError("market_share cannot be included in X2.")
-        if "price" not in X1.design_info.column_names or "price" not in X2.design_info.column_names:
-            raise ValueError("price must be included in X1 or X2.")
-
-        # Build instruments from exogenous variables (excluding price) and instruments
-        w = patsy.dmatrix(product_formulation.instruments, data, NA_action="raise", eval_env=2)
-        zd_terms = [term for term in itertools.chain(X1.design_info.terms, w.design_info.terms) if term.name() != "price"]
-        Z = patsy.dmatrix(patsy.ModelDesc([], zd_terms), data, NA_action="raise", eval_env=2)
+        X1, X2, Z = product_formulation.build(data)
 
         # Rank condition for instruments
         z_x1 = Z.T @ X1
@@ -96,7 +115,7 @@ class Individuals:
     market_ids: Vector  # IDs that associate individuals with markets.
     weights: Vector  # I
     nodes: Matrix  # I x D
-    demographics: Optional[Matrix]  # I x D
+    demographics: Optional[NamedMatrix]  # I x D
 
     def __post_init__(self):
         assert is_vector(self.market_ids)
@@ -126,6 +145,7 @@ class Individuals:
         market_ids, nodes, weights = integration.build(products.K2, np.unique(products.market_ids), state)
 
         if demographics_formulation is not None:
+            demographics_terms = _parse_terms(demographics_formulation)
             try:
                 demographics_market_ids = np.asanyarray(demographics_data["market_id"])
             except KeyError:
@@ -146,7 +166,7 @@ class Individuals:
             drawn_demographics = pd.concat(demographics_list)
 
             # Build from formula
-            demographics = patsy.dmatrix(demographics_formulation, drawn_demographics, NA_action="raise")
+            demographics = _build_matrix(demographics_terms, drawn_demographics)
         else:
             demographics = None
 

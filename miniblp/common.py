@@ -1,20 +1,48 @@
-from typing import Type, Iterable, Tuple, List, Any, Optional
+from typing import Type, Iterable, Tuple, List, Any, Optional, Union
 
 import numpy as np
 
 Vector: Type[np.ndarray] = np.ndarray
 Matrix: Type[np.ndarray] = np.ndarray
 
+# TODO: Easier to use xarray rather than make own implementation?
+class NamedMatrix:
+    def __init__(self, data, column_names):
+        _, num_columns = data.shape
+        assert len(column_names) == num_columns
+        self._data = data
+        self.column_names = column_names
+
+    def __array__(self):
+        return self._data
+
+    def __len__(self):
+        return self._data.__len__()
+
+    def __matmul__(self, other):
+        return self._data.__matmul__(other)
+
+    def plain(self) -> Matrix:
+        return self._data
+
+    @property
+    def shape(self):
+        return self._data.shape
+
+    @property
+    def T(self):
+        return self._data.T
+
 
 def is_vector(vector: np.ndarray) -> bool:
     return len(vector.shape) == 1
 
 
-def is_matrix(matrix: np.ndarray) -> bool:
+def is_matrix(matrix: Union[np.ndarray, NamedMatrix]) -> bool:
     return len(matrix.shape) == 2
 
 
-def are_same_length(*arrays: Optional[np.ndarray]) -> bool:
+def are_same_length(*arrays: Optional[Union[np.ndarray, NamedMatrix]]) -> bool:
     """ Check that the vectors and matrix in arrays have the same length. """
     iterator = filter(lambda array: array is not None, iter(arrays))
     try:

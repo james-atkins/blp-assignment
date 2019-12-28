@@ -43,11 +43,11 @@ class GMMStepResult:
         # TODO: Standard errors
         self.beta_estimates = pd.DataFrame(
             self.theta1,
-            index=self.problem.products.X1.design_info.column_names,
+            index=self.problem.products.X1.column_names,
             columns=["estimate"]
         )
 
-        x2_column_names = self.problem.products.X2.design_info.column_names
+        x2_column_names = self.problem.products.X2.column_names
         self.sigma_estimates = pd.DataFrame(self.theta2.sigma, index=x2_column_names, columns=x2_column_names)
 
         if self.theta2.pi is None:
@@ -55,7 +55,7 @@ class GMMStepResult:
         else:
             self.pi_estimates = pd.DataFrame(self.theta2.pi,
                                         index=x2_column_names,
-                                        columns=self.problem.individuals.demographics.design_info.column_names)
+                                        columns=self.problem.individuals.demographics.column_names)
 
     def compute_weighting_matrix_heteroscedasticity(self) -> Matrix:
         """ Compute heteroscedasticity robust weighting matrix for 2nd GMM step. """
@@ -349,10 +349,10 @@ class Problem:
         }).to_frame().T.to_string(buffer, index=False, justify="center")
 
     def _format_formulations(self, buffer: io.StringIO):
-        formulations = {"x1: Linear Characteristics": pd.Series(self.products.X1.design_info.column_names),
-                        "x2: Nonlinear Characteristics": pd.Series(self.products.X2.design_info.column_names)}
+        formulations = {"x1: Linear Characteristics": pd.Series(self.products.X1.column_names),
+                        "x2: Nonlinear Characteristics": pd.Series(self.products.X2.column_names)}
 
         if self.individuals.demographics is not None:
-            formulations["d: Demographics"] = pd.Series(self.individuals.demographics.design_info.column_names)
+            formulations["d: Demographics"] = pd.Series(self.individuals.demographics.column_names)
 
         pd.DataFrame(formulations).fillna("").T.to_string(buffer, justify="center")
