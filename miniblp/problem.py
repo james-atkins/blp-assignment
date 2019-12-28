@@ -160,7 +160,8 @@ class Problem:
 
     def solve(self, sigma: Matrix, pi: Optional[Matrix] = None, *, method: str = "2s",
               iteration: Optional[Iteration] = None,
-              optimisation: Optional[Optimisation] = None) -> ProblemResult:
+              optimisation: Optional[Optimisation] = None,
+              parallel: bool = True) -> ProblemResult:
 
         step_start_time = time.time()
 
@@ -183,7 +184,12 @@ class Problem:
 
         initial_deltas = [market.logit_delta for market in self.markets]
 
-        with multiprocessing.Pool() as pool:
+        if parallel:
+            pool = multiprocessing.Pool()
+        else:
+            pool = None
+
+        try:
             print("Running GMM step 1...")
             result_stage_1 = self._gmm_step(
                 pool,
@@ -214,8 +220,11 @@ class Problem:
             )
 
             return result_stage_2  # TODO: right type
+        finally:
+            if pool is not None:
+                pool.terminate()
 
-    def _gmm_step(self, pool: multiprocessing.Pool, theta2: Theta2, initial_deltas: List[Vector], W: Matrix,
+    def _gmm_step(self, pool: Optional[multiprocessing.Pool], theta2: Theta2, initial_deltas: List[Vector], W: Matrix,
                   iteration: Iteration,
                   optimisation: Optimisation) -> GMMStepResult:
 
@@ -235,8 +244,11 @@ class Problem:
                 compute_jacobian=compute_jacobian
             )
 
-            # The market share inversion is independent for each market so each can be computed in parallel
-            results = pool.starmap(solve_demand, zip(self.markets, initial_deltas))
+            if pool is None:
+                results = [solve_demand(market, initial_delta) for (market, initial_delta) in zip(self.markets, initial_deltas)]
+            else:
+                # The market share inversion is independent for each market so each can be computed in parallel
+                results = pool.starmap(solve_demand, zip(self.markets, initial_deltas))
 
             for result, jacobian in results:
                 iterations += result.iterations
