@@ -1,5 +1,7 @@
+import functools
 import io
 import math
+import multiprocessing
 import time
 from typing import Optional, List, Tuple, Union, NamedTuple
 
@@ -181,36 +183,39 @@ class Problem:
 
         initial_deltas = [market.logit_delta for market in self.markets]
 
-        print("Running GMM step 1...")
-        result_stage_1 = self._gmm_step(
-            theta2=theta2,
-            initial_deltas=initial_deltas,
-            W=W,
-            iteration=iteration,
-            optimisation=optimisation
-        )
+        with multiprocessing.Pool() as pool:
+            print("Running GMM step 1...")
+            result_stage_1 = self._gmm_step(
+                pool,
+                theta2=theta2,
+                initial_deltas=initial_deltas,
+                W=W,
+                iteration=iteration,
+                optimisation=optimisation
+            )
 
-        if method == "1s":
-            return result_stage_1
+            if method == "1s":
+                return result_stage_1
 
-        # In second GMM step use the computed deltas from the first step as initial values
-        initial_deltas = np.split(result_stage_1.delta, np.cumsum([market.products.J for market in self.markets]))[:-1]
+            # In second GMM step use the computed deltas from the first step as initial values
+            initial_deltas = np.split(result_stage_1.delta, np.cumsum([market.products.J for market in self.markets]))[:-1]
 
-        print("Computing weighting matrix...")
-        W = result_stage_1.compute_weighting_matrix_heteroscedasticity()
+            print("Computing weighting matrix...")
+            W = result_stage_1.compute_weighting_matrix_heteroscedasticity()
 
-        print("Running GMM step 2...")
-        result_stage_2 = self._gmm_step(
-            theta2=result_stage_1.theta2,
-            initial_deltas=initial_deltas,
-            W=W,
-            iteration=iteration,
-            optimisation=optimisation
-        )
+            print("Running GMM step 2...")
+            result_stage_2 = self._gmm_step(
+                pool,
+                theta2=result_stage_1.theta2,
+                initial_deltas=initial_deltas,
+                W=W,
+                iteration=iteration,
+                optimisation=optimisation
+            )
 
-        return result_stage_2  # TODO: right type
+            return result_stage_2  # TODO: right type
 
-    def _gmm_step(self, theta2: Theta2, initial_deltas: List[Vector], W: Matrix,
+    def _gmm_step(self, pool: multiprocessing.Pool, theta2: Theta2, initial_deltas: List[Vector], W: Matrix,
                   iteration: Iteration,
                   optimisation: Optimisation) -> GMMStepResult:
 
@@ -220,14 +225,20 @@ class Problem:
             deltas: List[Vector] = []
             jacobians: List[Matrix] = []
 
-            # The market share inversion is independent for each market so each can be computed in parallel,
-            # but for now this is done sequentially.
-
             iterations: int = 0
             evaluations: int = 0
 
-            for market, initial_delta in zip(self.markets, initial_deltas):
-                result, jacobian = market.solve_demand(theta2, iteration, compute_jacobian, initial_delta)
+            solve_demand = functools.partial(
+                Market.solve_demand,
+                theta2=theta2,
+                iteration=iteration,
+                compute_jacobian=compute_jacobian
+            )
+
+            # The market share inversion is independent for each market so each can be computed in parallel
+            results = pool.starmap(solve_demand, zip(self.markets, initial_deltas))
+
+            for result, jacobian in results:
                 iterations += result.iterations
                 evaluations += result.evaluations
                 if not result.success:

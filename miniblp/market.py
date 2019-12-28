@@ -66,7 +66,7 @@ class Market:
 
             return iteration.iterate(initial_delta, contraction)
 
-    def solve_demand(self, theta2: Theta2, iteration: Iteration, compute_jacobian: bool, initial_delta: Vector) -> Tuple[IterationResult, Optional[Matrix]]:
+    def solve_demand(self, initial_delta: Vector, theta2: Theta2, iteration: Iteration, compute_jacobian: bool) -> Tuple[IterationResult, Optional[Matrix]]:
         # Solve the contraction mapping
         mu = self.compute_mu(theta2)
         result = self.compute_delta(mu, iteration, initial_delta)
