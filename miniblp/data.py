@@ -15,8 +15,10 @@ class ProductFormulation:
     def __init__(self, linear: str, random: str, instruments: str):
         self._linear_terms = _parse_terms(linear)
         self._random_terms = _parse_terms(random)
+
         w_terms = _parse_terms(instruments)
-        self._instrument_terms = [t for t in itertools.chain(self._linear_terms, w_terms) if t.name() != "price"]
+        instrument_terms = [t for t in itertools.chain(self._linear_terms, w_terms) if t.name() != "price"]
+        self._instrument_terms = list(dict.fromkeys(instrument_terms))  # remove duplicates
 
         # Sanity checks to stop doing something stupid
         linear_term_names = {term.name() for term in self._linear_terms}
