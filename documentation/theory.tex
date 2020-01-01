@@ -2,11 +2,16 @@
 
 \usepackage{amsmath}
 \usepackage{amsfonts}
+\usepackage{hyperref}
 
-\title{BLP Algorithm}
-\author{James Atkins}
+
+\title{Empirical Industrial Organization and Market Design}
+\subtitle{Computational Assignment}
+\author{James Atkins \\ 3081967}
+\date{Due 10 January 2020}
 
 \DeclareMathOperator{\E}{\mathbb{E}}
+\newcommand{\code}[1]{\texttt{#1}}
 
 \begin{document}
 	
@@ -67,8 +72,31 @@ It is common to assume that \(f(\beta_i|\theta)\) follows a multivariate normal 
 	
 \end{tabular}
 
+\section{miniblp}
 
-\section{Algorithm}
+\code{miniblp}
+
+\subsection{Parallelism}
+
+The market inversion can be computed for each market independently
+
+\subsection{numba}
+
+Numba\footnote{\url{http://numba.pydata.org/}} is ``an open source JIT compiler that translates a subset of Python and NumPy code into fast machine code''. Numba-compiled numerical algorithms can approach the speeds of C.
+
+\subsection{log-sum-exp trick}
+
+\url{https://blog.feedly.com/tricks-of-the-trade-logsumexp/}
+
+Safeguards against numerical overflow
+
+\begin{equation}
+LSE(x_1, \dots, x_K) = \log \sum_k \exp x_k = a + \log \sum_k \exp (x_k - a)
+\end{equation}
+
+where \(a = \max_k x_k\)
+
+\section{BLP Algorithm}
 
 For each guess of \(\theta_2\):
 
