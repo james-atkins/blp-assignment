@@ -39,7 +39,7 @@ nevo_problem = miniblp.Problem(
 
 def test_sigma_ones(capsys):
     iteration = miniblp.iteration.SQUAREMIteration()
-    optimisation = miniblp.optimisation.SciPyOptimisation("BFGS", gtol=1e-10)
+    optimisation = miniblp.optimisation.BFGS(gtol=1e-10)
 
     with capsys.disabled():
         result = problem.solve(sigma=np.ones((4, 4)), iteration=iteration, optimisation=optimisation)
@@ -50,7 +50,7 @@ def test_sigma_ones(capsys):
 
 def test_nevo(capsys):
     iteration = miniblp.iteration.SQUAREMIteration()
-    optimisation = miniblp.optimisation.SciPyOptimisation("BFGS", gtol=1e-10)
+    optimisation = miniblp.optimisation.BFGS(gtol=1e-10)
 
     initial_sigma = np.diag([0.3302, 2.4526, 0.0163, 0.2441])
     initial_pi = np.array([

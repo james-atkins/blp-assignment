@@ -320,7 +320,7 @@ class Problem:
             else:
                 return progress.objective_value
 
-        optimisation_result = optimisation.optimise(objective_wrapper, theta2.optimiser_parameters)
+        optimisation_result = optimisation.optimise(objective_wrapper, theta2.optimiser_parameters, theta2.bounds)
         theta2.optimiser_parameters = optimisation_result.solution
 
         return GMMStepResult(self, progress, optimisation_result)

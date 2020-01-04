@@ -142,6 +142,22 @@ class Theta2:
             else:
                 raise ValueError("Unknown parameter type")
 
+    @property
+    def bounds(self) -> List[Tuple[Optional[float], Optional[float]]]:
+        """ (min, max) pairs for each element in self.optimiser_parameters, with None if unbounded in that direction """
+
+        bounds = []
+
+        for param in self.unfixed:
+            if isinstance(param, SigmaParameter) and param.index[0] == param.index[1]:
+                # Diagonals in the sigma matrix are standard deviations and so cannot be negative
+                bounds.append((0, None))
+            else:
+                # Other terms are unrestricted
+                bounds.append((None, None))
+
+        return bounds
+
     def _store(self, parameter_cls: Type[Parameter], indices: Iterable[Tuple[int, int]], non_zero: Iterable[Tuple[int, int]]):
         non_zero = set(non_zero)
         for index in indices:
