@@ -200,7 +200,7 @@ class Problem:
                 optimisation=optimisation
             )
 
-            if method == "1s":
+            if method == "1s" or not result_stage_1.success:
                 return result_stage_1
 
             # In second GMM step use the computed deltas from the first step as initial values
@@ -278,6 +278,7 @@ class Problem:
             omega = delta - self.products.X1 @ theta1
             g_mean = omega.T @ self.products.Z / self.N
             objective_value = g_mean @ W @ g_mean.T
+            objective_value *= self.N**4
 
             if jacobian is None:
                 gradient = None
@@ -322,6 +323,11 @@ class Problem:
 
         optimisation_result = optimisation.optimise(objective_wrapper, theta2.optimiser_parameters, theta2.bounds)
         theta2.optimiser_parameters = optimisation_result.solution
+
+        if optimisation_result.success:
+            print(f"Optimised! Objective value: {optimisation_result.objective}")
+        else:
+            print(f"Optimisation failed! {optimisation_result.termination_message}")
 
         return GMMStepResult(self, progress, optimisation_result)
 

@@ -42,7 +42,7 @@ class ProductFormulation:
 def _build_matrix(terms: List[patsy.desc.Term], data: pd.DataFrame) -> NamedMatrix:
     design_info = patsy.build.design_matrix_builders([terms], lambda: iter([data]), patsy.eval.EvalEnvironment([data]))[0]
     matrix = np.asarray(patsy.build.build_design_matrices([design_info], data, NA_action="raise")[0])
-    return NamedMatrix(matrix, design_info.column_names)
+    return NamedMatrix(matrix.copy(), design_info.column_names)
 
 
 def _parse_terms(formula: str) -> List[patsy.desc.Term]:
@@ -144,7 +144,7 @@ class Individuals:
         state = np.random.RandomState(seed=seed)
 
         # Generate random taste shocks
-        market_ids, nodes, weights = integration.build(products.K2, np.unique(products.market_ids), state)
+        market_ids, nodes, weights = integration.integrate(products.K2, np.unique(products.market_ids), state)
 
         if demographics_formulation is not None:
             demographics_terms = _parse_terms(demographics_formulation)

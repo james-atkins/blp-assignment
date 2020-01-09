@@ -19,6 +19,10 @@ class NamedMatrix:
     def __len__(self):
         return self._data.__len__()
 
+    def __imul__(self, other):
+        self._data *= other
+        return self
+
     def __matmul__(self, other):
         return self._data.__matmul__(other)
 

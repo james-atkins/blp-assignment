@@ -23,6 +23,8 @@ problem = miniblp.Problem(
     seed=0
 )
 
+print(problem)
+
 demographic_formulation = miniblp.DemographicsFormulation("0 + income + income_squared + age + child")
 nevo_integration = miniblp.integration.PrecomputedIntegration(
     individual_data,

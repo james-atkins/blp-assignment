@@ -1,0 +1,253 @@
+\documentclass[parskip=half]{scrartcl}
+
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage[authordate, isbn=false]{biblatex-chicago}
+\usepackage{todonotes}
+\usepackage{booktabs}
+\usepackage{bm}
+\usepackage[section]{placeins}
+
+\title{Computational Assignment}
+\subtitle{Empirical Industrial Organization and Market Design}
+\author{James Atkins \\ 3081967}
+\date{Due 10 January 2020}
+
+\DeclareMathOperator{\E}{\mathbb{E}}
+\DeclareMathOperator{\Cov}{Cov}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\addbibresource{biblio.bib}
+
+% Where to look for images
+\graphicspath{ {./output/} }
+
+% Only sections and subsections in TOC
+\setcounter{tocdepth}{2}
+
+\begin{document}
+	
+\maketitle
+
+I estimate a random coefficients logit model for the paid Android app market. 
+Furthermore, I describe an small Python package \code{miniblp}, written for this exercise, for estimating these type of models. and supports a number of different numerical integration, fixed point iteration and optimisation routines\footnote{\code{miniblp} supports both Monte Carlo and  Gauss-Hermite (product) quadrature rule integration; both simple fixed point iteration and the SQUAREM fixed point acceleration method; and \code{scipy}'s optimisation routines such as the Nelder-Mead simplex method and the Broyden–Fletcher–Goldfarb–Shanno (BFGS) algorithm.}.
+
+\tableofcontents
+
+\pagebreak
+\section{Description of Data}
+
+\subsection{Product}
+
+The product dataset consists of data of the top 500 paid Android apps from Google's Play Store for 12 countries and 3 time periods (2013, 2016 and 2019), yielding 36 markets (a market is a country-year pair). In total, there are 2128 unique apps. Of these, only 16 appear in all 36 markets and 237 only appear in 18 markets or more. There are 622 apps that are just sold in one market. Figure \ref{fig:unique_apps_per_num_markets} illustrates this distribution. The market share is computed using the estimate of the number of downloads\footnote{Some duplicate entries were found during the data cleaning process. Please see the \code{process\_data.R} file for more information as to how these were handled.}. The share of the outside good is shown in Table \ref{tab:share_outside_good}\todo{One of the papers mentions the importance of the outside good for estimation?}.
+
+\begin{figure}[ht]
+	\centering
+	\includegraphics[width=\textwidth]{unique_apps_per_num_markets}
+	\caption{Unique apps per number of markets}
+	\label{fig:unique_apps_per_num_markets}
+\end{figure}
+
+\input{output/share_outside_good}
+
+The paid Android app market is characterised by the `Superstars' phenomenon discussed by \cite{rosen1981economics}: a small number of apps have an enormous number of downloads and dominate the market. For example, the most downloaded app in the United States in 2019, Minecraft, is downloaded more than three times as much as the second most downloaded app, Hitman Sniper (see Figure \ref{fig:top_50_us_2019}). A similar distribution can be seen in the other markets in the dataset.
+
+\begin{figure}[ht]
+	\centering
+	\includegraphics[width=\textwidth]{top_50_us_2019}
+	\caption{Top 50 downloaded apps in the United States in 2019}
+	\label{fig:top_50_us_2019}
+\end{figure}
+
+\subsection{Demographic}
+
+The demographic data consists of two randomly generated demographics, \emph{demographic1} and \emph{demographic2} with 500 observations for each market\footnote{The raw demographic data consists of a \(36\times1000\) matrix, however as it is unlabelled, it is unclear which market each row corresponds to. Please see the \code{process\_data.R} file for more information.}. Figures \ref{fig:density_demographic_1} and \ref{fig:density_demographic_2} plot their respective distributions.
+\emph{demographic1} is characterised by its long-tail. The bulk of the probability density is around zero however there are a small number of observations with significantly higher values. A real world parallel to this demographic would be income or wealth where most people earn close to the median wage and a few earn significantly more.
+\todo{Briefly discuss distribution2}
+
+\begin{figure}[ht]
+	\centering
+	\includegraphics[width=\textwidth]{kernel_density_demographic1}
+	\caption{Kernel density plot of demographic1}
+	\label{fig:density_demographic_1}
+\end{figure}
+
+\begin{figure}[ht]
+	\centering
+	\includegraphics[width=\textwidth]{kernel_density_demographic2}
+	\caption{Kernel density plot of demographic2}
+	\label{fig:density_demographic_2}
+\end{figure}
+
+
+\section{Random Coefficients Logit Model and BLP Algorithm}
+
+\subsection{Model}
+
+There are \(t = 1, 2, \dotsc, T\) markets, each with \(j = 1, 2, \dotsc, J_t\) products. There are \(i = 1, 2, \dotsc, I_t\) ``individuals'' who choose among the \(J_t\) products and an outside good \(j = 0\).
+
+The indirect utility of individual \(i\) purchasing product \(j\) in market \(t\) is given by,
+
+\begin{equation}
+u_{ijt} = \alpha_i p_{jt} + x_{jt} \beta_i + \xi_{jt} + \epsilon_{ijt}
+\end{equation}
+
+where \(x_{jt}\) is a vector of product characteristics. The main addition to the standard logit model is that coefficients \(\beta_i\) are now individual specific. It is assumed that the random coefficients are a linear function of \emph{observed} demographic data \(d_i\) and \emph{unobserved} heterogeneity \(v_i\).
+
+\begin{equation}
+\beta_i = \beta + \Pi d_i + \Sigma v_i
+\end{equation}
+
+This allows the indirect utility to be split into mean utility \(\delta_{jt}\) and individual specific utility \(\mu_{ijt}\). Note that \(\mu_{ijt}\) is a function of \(\theta_2 = (\Pi, L)\) only.
+
+\begin{equation}
+u_{ijt} = \delta_{jt} + \mu_{ijt} + \epsilon_{ijt}
+\end{equation}
+
+It is assumed that \(\epsilon_{ijt}\) is of Type I Extreme Value, so that conditional on the random coefficients market shares follow the usual logit form.
+
+\begin{equation}
+\label{eq:market_share_integral}
+s_{jt}(\delta_{jt}, \theta_2) = \int \frac{\exp(\delta_{jt} + \mu_{jti})}{1 + \sum_{k \in J_t} \exp(\delta_{kt} + \mu_{kti})} dF(\mu_{jt} | \theta_2).
+\end{equation}
+
+This integral cannot be integrated analytically and so must be numerically integrated. Predicted market shares are obtained by integrating over the distribution of individual heterogeneity, approximated with Monte Carlo integration or quadrature rules. It is commonly assumed that \(v_i\) is drawn from a multi-variate normal distribution whilst demographics are sampled from the real distribution of demographics, such as the US Current Population Survey, rather a parametric form being assumed. If the distribution of \(v_i\) is normal then \(\Sigma\) is the Cholesky root of the covariance matrix for unobserved taste heterogeneity.
+
+\begin{equation}
+\beta_i \sim \mathcal{N}(\beta + \Pi d_i, \Sigma'\Sigma)
+\end{equation}
+
+\subsection{BLP Algorithm}
+
+Essentially the BLP algorithm is a linear IV GMM regression of the form,
+
+\begin{equation}
+\delta_{jt}(\theta_2) = \alpha p_{jt} + x_{jt} \beta + \xi_{jt}.
+\end{equation}
+
+For each guess of \(\theta_2\):
+
+\begin{enumerate}
+	
+\item For each market \(t\), solve the system of non-linear equations equating observed and predicted market shares \(s_{\cdot t}(\delta_{\cdot t}, x_{\cdot t}, p_{\cdot t}; \theta_2) = \mathcal{S}_{\cdot t}\) for \(\delta_{\cdot t}\).	
+	
+\begin{equation}
+\label{eq:market_inversion}
+\hat\delta_{\cdot t}( \mathcal{S}_{\cdot t}, \theta_2) = s^{-1}_{\cdot t}(\mathcal{S}_{.t}, x_{.t}, p_{.t}; \theta_2)
+\end{equation}
+
+For logit and nested logit models this can be solved for analytically, but with random coefficients this is solved using a contraction mapping.
+
+\begin{equation}
+\label{eq:contraction}
+\delta_{\cdot t}^{h+1} = \delta_{\cdot t}^h + \log s_{\cdot t} - \log s_{\cdot t}(\delta_{\cdot t}^h, \theta_2)
+\end{equation}
+
+This step is embarrassingly parallel as \(\hat\delta_{\cdot t}( \mathcal{S}_{\cdot t}, \theta_2)\) can be computed for each market independently.
+
+\item Stack up \(\hat\delta_{\cdot t}( \mathcal{S}_{\cdot t}, \theta_2)\) across all markets, estimate \(\theta_1\) by ``concentrating out'' the linear parameters, and compute the error term \(\omega\),
+
+\begin{gather}
+\hat{\theta}_1(\theta_2) = (X_1'ZWZ'X_1)^{-1}X_1'ZWZ'\hat{\delta}(\theta_2) \\
+\omega(\theta_2) = \hat{\delta}(\theta_2) - X_1 \hat{\theta}_1(\theta_2)
+\end{gather}
+
+\item Construct the GMM objective function,
+
+\begin{equation}
+\omega(\theta_2)' Z W Z' \omega(\theta_2)
+\end{equation}
+	
+\end{enumerate}
+
+A non-linear optimiser then searchs for the value of \(\theta_2\) that minimises the GMM objective function. The optimiser can be aided by computing the analytic gradient.
+
+Aymptotically efficient estimates can be achieved using two-step GMM. First, \(\hat{\theta}_2\) is estimated consistently (but not efficiently) with the weighting matrix \(W = (Z'Z/N)^{-1}\). Then a new weighting matrix \(W = \E[Z'\omega(\hat{\theta}_2)\omega(\hat{\theta}_2)'Z]\) is calculated and the computation is re-run. Standard errors are the usual GMM standard errors.
+
+\section{miniblp}
+
+\code{miniblp} is a Python 3 package for estimating random coefficient logit models using the BLP algorithm, written for this assignment. \code{miniblp} has an intuitive interface with `R-style' formulas\footnote{The inspiration for the \href{https://patsy.readthedocs.io/en/latest/}{R-style} formulas came from \code{pyblp}}, and supports a number of different numerical integration, fixed point iteration and optimisation routines. It is trivial for the end user to change integration, iteration or optimisation routines during estimation. Furthermore it is easy to add additional routines.
+
+Compared to more featureful packages such as \code{pyblp} (\cite{conlon2019best}), it does not support the specification of a supply side, nor micro moments nor fixed effect absorption.
+
+\subsection{Integration}
+
+A integration class must subclass \code{miniblp.integration.NumericalIntegration} and implement the \code{integrate} method: it will be passed the dimensions and the markets for which it should integrate for. It should return the integration nodes \(v_i\) (the individual heterogeneity used in the computation of \(\mu_{jt}\)) and weights \(w_i\). This allows the integral \eqref{eq:market_share_integral} to be approximated. Note that \(s_{jti}\) are the \emph{choice probabilities} of individual \(i\) choosing product \(j\) in market \(t\).
+
+\begin{gather}
+s_{jt} \approx \sum_{i=1}^{I_t} w_{it} s_{jti} \\
+\label{eq:choice_probabilities}
+s_{jti} = \frac{\exp(\delta_{jt} + \mu_{jti})}{1 + \sum_{k \in J_t} \exp(\delta_{kt} + \mu_{kti})}.
+\end{gather}
+
+The most common approach to numerical integration is Monte Carlo integration where random draws are taken from a multi-variate standard normal distribution. The prime advantage of Monte Carlo integration is that it avoids the `curse of dimensionality' --- accuracy does not decline quickly as the dimensions of integration are increased. The disadvantage is that a large number of `individuals' need to be sampled in order to accurately approximate the integrals. This is computationally expensive and can significantly slow down the algorithm.
+
+Another method of integration is the Gaussian Quadrature. These approximate integral with a polynomial which is then integrated exactly. The main choice to make is the order of the rule. As the order grows, more nodes are required but the accuracy of the approximation improves. In particular, the Gauss–Hermite quadrature is used to approximate normally distributed variables.
+However the Gaussian quadrature rules apply only to a single dimension. To compute integrals in multiple dimensions, one approach is to construct the product of single dimensional integrals by applying Fubini's theorem. However this approach requires the function evaluations to grow exponentially as the number of dimensions increases: if one needs \(I_t\) points to approximate a one-dimensional integral, then \(I_t^d\) points are needed to approximate a \(d\)-dimensional integral.
+
+The advantage and disadvantage of Gaussian quadrature rules is that they are better are approximating the ``tail'' of the probability distribution. Whilst this increases the accuracy of the approximation, it can also lead to numerical overflow issues caused by very large values.
+
+\cite{skrainka2011high} run Monte Carlo simulations and recommend using quadrature rules with an order of 7. They found that using more than 7 nodes in each dimension did not improve accuracy. \cite{conlon2019best} also recommend (for low dimensional problems) product rules with a ``relatively high degree of polynomial accuracy''.
+
+\code{miniblp} supports both Monte Carlo and Gauss–Hermite methods, as well as using precomputed integration nodes and weights. This can be useful for replicating a paper where these are published, for example \cite{nevo2000practitioner}'s fake cereal data.
+
+\subsection{Iteration}
+
+A iteration class must subclass \code{miniblp.iteration.Iteration} and implement the \code{iterate} method: it will be passed an initial vector \(\delta_{\cdot t}^0 \in \mathbb{R}^{J_t}\) and a contraction mapping \(f: \mathbb{R}^{J_t} \to \mathbb{R}^{J_t}\) which it should try and converge to a fixed point, reporting back information about whether it was successful and the number of number of iterations.
+
+Given a fixed point relationship there may be faster ways to obtain a solution to Equation \eqref{eq:contraction} \(f(\delta) = \delta\) than direct iteration.
+\cite{reynaerts2012enhancing} conduct extensive testing of various fixed point acceleration methods and find that the SQUAREM algorithm of \cite{varadhan2008simple} works well on the BLP contraction. \code{miniblp} includes an implementation of the the SQUAREM algorithm, based upon \code{pyblp}'s implementation (which in turn is based upon Varadhan's R package\footnote{\url{https://cran.r-project.org/web/packages/SQUAREM/index.html}}).
+
+\code{miniblp} also includes an implementation of \cite{nevo2000practitioner}'s phased tolerance method where the tolerance level is tightened as the number of iterations increases.
+
+\cite{dube2012improving} recommend a best-practice tolerance of 1E-14 for the fixed-point iterations. They show that too loose tolerances in inner loops can lead to incorrect parameter estimates.
+
+\subsection{Optimisation}
+
+A iteration class must subclass \code{miniblp.optimisation.Optimisation} and implement the \code{optimise} method: it will be passed the GMM objective function \(g: \mathbb{R}^P \to \mathbb{R} \), an initial vector \(x_0 \in \mathbb{R}^P\) and bounds for each parameter\footnote{The diagonal of \(\Sigma\) is bounded from below by zero as these entries correspond to variances in the covariance matrix. However few algorithms support parameter bounds; L-BFGS-B is an example of an algorithm that does.}.
+
+\code{miniblp} supports optimisers from the \code{scipy} Python package\footnote{\url{https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html\#scipy.optimize.minimize}}. It supports the calculation of Jacobian matrices to aid the gradient descent. This often leads to significant speed increases.
+
+\subsection{Speed and Safety}
+
+\subsubsection{log-sum-exp trick}
+
+A numerical problem often encountered when estimating the random coefficients logit model is that of numerical overflow. This occurs when attempting to compute the exponential of large values. A common safeguard against this is the `log-sum-exp trick'\footnote{See here for a helpful introduction: \url{https://blog.feedly.com/tricks-of-the-trade-logsumexp/}.},
+
+\begin{equation}
+LSE(x_1, \dots, x_K) = \log \sum_k \exp x_k = a + \log \sum_k \exp (x_k - a)
+\end{equation}
+
+where \(a = \max_k x_k\). Following \cite{conlon2019best}, this is implemented during the calculation of choice probabilities, \eqref{eq:choice_probabilities}. This problem is particularly relevant when using quadrature integration methods as these better approximate the ``tails'' of the distribution, which can lead to very large values.
+
+\subsubsection{Parallelism}
+
+The market inversion \eqref{eq:market_inversion} can be computed for each market independently so this calculation is embarrassingly parallel. This is done by default by \code{miniblp}. This can lead to substantial speed-ups.
+
+\subsubsection{numba}
+
+Numba\footnote{\url{http://numba.pydata.org/}} is ``an open source JIT compiler that translates a subset of Python and NumPy code into fast machine code''. Numba-compiled numerical algorithms can approach the speeds of C. This is used in the performance critical calculation of choice probabilities and market shares leading to speed-ups compared to the standard \code{numpy} implementation.
+
+\section{Estimation}
+
+\subsection{Baseline model}
+\subsection{Genre dummy variables}
+\subsection{Hausman instrument}
+
+\begin{description}
+	\item[Product space isolation] BLP and Berry (1994) suggest measures of isolation in product space as instruments. 
+	In product differentiation models with exogenous characteristics, the characteristics of other firms $(\boldsymbol{x}_k, k \neq j)$ are also instruments as they are excluded from the utility function (and so are uncorrelated with $\xi_{jm}$) but are correlated with the price $p_j$ via the first order conditions.
+	For each of the demand characteristics, BLP define three instruments: the characteristic itself, the sum of the characteristic across own-firm products and the sum of the characteristic across rival-firm products. For example in our case, three instrumental variables for app $j$ would be the average score of app $j$, the sum of average scores across the developer's own apps, and the sum of average scores across rival firm apps.
+	
+	\item[Hausman Instruments] Another class of instruments are Hausman instruments: the prices of products in other markets. For example the prices of an app in the United Kingdom, France and Germany could be used as an instrument for price in Italy. The instrument works by picking up common cost shocks but would be invalid if it picked up common demand shocks.
+\end{description}
+
+\subsection{Additional characteristic}
+
+\printbibliography
+
+\end{document}
