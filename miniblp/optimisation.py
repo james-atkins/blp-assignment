@@ -58,6 +58,11 @@ class NelderMead(SciPyOptimisation):
         super().__init__("Nelder-Mead", supports_jacobian=False, supports_bounds=False, **kwargs)
 
 
+class Powell(SciPyOptimisation):
+    def __init__(self, **kwargs):
+        super().__init__("Powell", supports_jacobian=False, supports_bounds=False, **kwargs)
+
+
 class BFGS(SciPyOptimisation):
     def __init__(self, **kwargs):
         super().__init__("BFGS", supports_jacobian=True, supports_bounds=False, **kwargs)

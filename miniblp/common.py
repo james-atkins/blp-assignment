@@ -135,6 +135,10 @@ class Theta2:
 
     @optimiser_parameters.setter
     def optimiser_parameters(self, values):
+        # The Powell solver sometimes gives zero dimensional inputs for some reason
+        if values.ndim == 0:
+            values = values[np.newaxis]
+
         if values.shape != (len(self.unfixed), ):
             raise ValueError("optimiser_parameters have the wrong shape.")
 
