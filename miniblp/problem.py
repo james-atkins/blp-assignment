@@ -278,7 +278,6 @@ class Problem:
             omega = delta - self.products.X1 @ theta1
             g_mean = omega.T @ self.products.Z / self.N
             objective_value = g_mean @ W @ g_mean.T
-            objective_value *= self.N**4
 
             if jacobian is None:
                 gradient = None
