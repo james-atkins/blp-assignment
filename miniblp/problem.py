@@ -14,7 +14,7 @@ from .data import Products, Individuals, ProductFormulation, DemographicsFormula
 from .integration import NumericalIntegration, MonteCarloIntegration
 from .iteration import Iteration, SimpleFixedPointIteration
 from .market import Market
-from .optimisation import Optimisation, OptimisationResult, SciPyOptimisation
+from .optimisation import Optimisation, OptimisationResult, BFGS
 
 FLOAT_FORMAT_STRING = "{:.2E}"
 
@@ -171,7 +171,7 @@ class Problem:
             iteration = SimpleFixedPointIteration()
 
         if optimisation is None:
-            optimisation = SciPyOptimisation("BFGS")
+            optimisation = BFGS()
 
         if method not in {"1s", "2s"}:
             raise ValueError("method must be 1s or 2s.")
