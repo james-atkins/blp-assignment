@@ -73,25 +73,29 @@ class Market:
 
         # Compute the Jacobian
         if result.success and compute_jacobian:
-            jacobian = self.compute_delta_by_theta_jacobian(theta2, result.final_delta, mu)
+            jacobian = self._compute_delta_by_theta_jacobian(theta2, result.final_delta, mu)
         else:
             jacobian = None
 
         return result, jacobian
 
-    def compute_delta_by_theta_jacobian(self, theta2: Theta2, delta: Vector, mu: Matrix) -> Matrix:
+    def jacobian(self, theta2: Theta2, delta: Vector) -> Matrix:
+        mu = self.compute_mu(theta2)
+        return self._compute_delta_by_theta_jacobian(theta2, delta, mu)
+
+    def _compute_delta_by_theta_jacobian(self, theta2: Theta2, delta: Vector, mu: Matrix) -> Matrix:
         choice_probabilities = _compute_choice_probabilities(delta, mu)
-        shares_by_delta_jacobian = self.compute_share_by_delta_jacobian(choice_probabilities)
-        shares_by_theta_jacobian = self.compute_share_by_theta_jacobian(choice_probabilities, theta2)
+        shares_by_delta_jacobian = self._compute_share_by_delta_jacobian(choice_probabilities)
+        shares_by_theta_jacobian = self._compute_share_by_theta_jacobian(choice_probabilities, theta2)
         return linalg.solve(shares_by_delta_jacobian, -shares_by_theta_jacobian)
 
-    def compute_share_by_delta_jacobian(self, choice_probabilities):
+    def _compute_share_by_delta_jacobian(self, choice_probabilities):
         """ Compute the Jacobian of market shares with respect to delta. """
         diagonal_shares = np.diagflat(self.products.market_shares)
         weighted_probabilities = self.individuals.weights[:, np.newaxis] * choice_probabilities.T
         return diagonal_shares - choice_probabilities @ weighted_probabilities
 
-    def compute_share_by_theta_jacobian(self, choice_probabilities: Vector, theta2: Theta2):
+    def _compute_share_by_theta_jacobian(self, choice_probabilities: Vector, theta2: Theta2):
         """ Compute the Jacobian of market shares with respect to theta. """
         jacobian = np.empty(shape=(self.products.J, theta2.P))
 

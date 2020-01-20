@@ -2,6 +2,7 @@ import functools
 import io
 import math
 import multiprocessing
+import textwrap
 import time
 from typing import Optional, List, Tuple, Union, NamedTuple
 
@@ -27,13 +28,13 @@ class GMMStepResult:
     theta2: Theta2
     omega: Vector
     delta: Vector
-    # fixed_point_iterations: int
-    # contraction_evaluations: int
+    fixed_point_iterations: int
+    contraction_evaluations: int
     beta_estimates: pd.DataFrame
     sigma_estimates: pd.DataFrame
     pi_estimates: Optional[pd.DataFrame]
 
-    def __init__(self, problem: "Problem", final_progress: "Progress", optimisation_result: OptimisationResult):
+    def __init__(self, problem: "Problem", final_progress: "Progress", optimisation_result: OptimisationResult, weighting: Matrix, jacobian: Matrix):
         self.problem = problem
         self.success = optimisation_result.success
         self.optimisation_result = optimisation_result
@@ -41,13 +42,18 @@ class GMMStepResult:
         self.theta2 = final_progress.theta2
         self.omega = final_progress.omega
         self.delta = final_progress.delta
+        self.W = weighting
+        self.jacobian = jacobian
+        self.fixed_point_iterations = final_progress.fixed_point_iterations
+        self.contraction_evaluations = final_progress.contraction_evaluations
 
-        # TODO: Standard errors
         self.beta_estimates = pd.DataFrame(
             self.theta1,
             index=self.problem.products.X1.column_names,
             columns=["estimate"]
         )
+
+        # se = self.compute_se()
 
         x2_column_names = self.problem.products.X2.column_names
         self.sigma_estimates = pd.DataFrame(self.theta2.sigma, index=x2_column_names, columns=x2_column_names)
@@ -59,16 +65,38 @@ class GMMStepResult:
                                         index=x2_column_names,
                                         columns=self.problem.individuals.demographics.column_names)
 
+    def _compute_S(self, centre_moments: bool):
+        g = self.omega[:, np.newaxis] * self.problem.products.Z
+        if centre_moments:
+            g -= g.mean(axis=0)
+        return sum(np.c_[g_n] @ np.c_[g_n].T for g_n in g) / self.problem.N
+
     def compute_weighting_matrix_heteroscedasticity(self) -> Matrix:
         """ Compute heteroscedasticity robust weighting matrix for 2nd GMM step. """
-        # g = self.omega.T @ self.problem.products.Z
-        g = self.omega[:, np.newaxis] * self.problem.products.Z
-        g -= g.mean(axis=0)  # center moments
-        S = sum(np.c_[g_n] @ np.c_[g_n].T for g_n in g) / self.problem.N
+        S = self._compute_S(True)
         try:
             return linalg.inv(S)
         except linalg.LinAlgError:
             raise ValueError("Failed to invert matrix S.")
+
+    def compute_se(self) -> Tuple[Vector, Vector]:
+        S = self._compute_S(False)
+        W = self.W
+        mean_G = (self.problem.products.Z.T @ self.jacobian) / self.problem.N
+
+        covariances_inverse = mean_G.T @ W @ mean_G
+        try:
+            covariances = linalg.inv(covariances_inverse)
+        except linalg.LinAlgError:
+            raise ValueError("Failed to invert matrix covariances_inverse.")
+        # compute the robust covariance matrix
+        covariances = covariances @ mean_G.T @ W @ S @ W @ mean_G @ covariances
+        parameter_covariances = np.c_[covariances + covariances.T] / 2
+
+        theta2_se = np.sqrt(np.c_[parameter_covariances.diagonal()] / self.problem.N)
+
+        sigma_se, pi_se = self.theta2.expand(theta2_se)
+        return sigma_se, pi_se
 
     def format(self) -> str:
         buffer = io.StringIO()
@@ -92,6 +120,75 @@ class GMMStepResult:
 
         buffer.seek(0)
         return buffer.read()
+
+    def to_latex(self, file_path: str, caption: str, label: str):
+
+        def formatter(x: float) -> str:
+            if x == 0:
+                return ""
+            return FLOAT_FORMAT_STRING.format(x)
+
+        with open(file_path, "w") as f:
+
+            print(textwrap.dedent(r"""
+            \begin{table}[ht]
+            """), file=f)
+            print("\caption{" + caption + "}", file=f)
+            print("\label{" + label + "}", file=f)
+            print("\n", file=f)
+
+            print(r"\begin{subtable}[t]{.48\textwidth}", file=f)
+            print(r"\centering", file=f)
+            info = pd.Series(
+                [self.optimisation_result.objective, self.contraction_evaluations, self.fixed_point_iterations],
+                index=["Objective Value", "Contraction Evaluations", "Fixed Point Iterations"]
+            ).to_latex(f, float_format=formatter, header=False)
+            print(r"\caption{Solver Statistics}", file=f)
+            print(r"\end{subtable}", file=f)
+            print(r"\hspace{\fill}", file=f)
+
+            print(r"\begin{subtable}[t]{.48\textwidth}", file=f)
+            print(r"\centering", file=f)
+            self.beta_estimates.to_latex(f, float_format=formatter, header=False)
+            print(r"\caption{Linear Coefficients \(\beta\)}", file=f)
+            print(r"\end{subtable}", file=f)
+
+            print("\n\\bigskip", file=f)
+            print(r"\begin{subtable}[t]{.48\textwidth}", file=f)
+            print(r"\centering", file=f)
+            self.sigma_estimates.to_latex(f, float_format=formatter)
+            print(r"\caption{Random Coefficients \(\Sigma\)}", file=f)
+            print(r"\end{subtable}", file=f)
+
+            if self.pi_estimates is not None:
+                print(r"\hspace{\fill}", file=f)
+                print(r"\begin{subtable}[t]{.48\textwidth}", file=f)
+                print(r"\centering", file=f)
+                self.pi_estimates.to_latex(f, float_format=formatter)
+                print(r"\caption{Random Coefficients \(\Pi\)}", file=f)
+                print(r"\end{subtable}", file=f)
+
+            print(r"\end{table}", file=f)
+
+            # print(textwrap.dedent(r"""
+            # \begin{table}
+            # \begin{tabular}{@{}cc@{}}
+            # \toprule
+            # \multicolumn{2}{c}{Linear Parameters $\beta$} \\
+            # \cmidrule(lr){1-2}
+            # Parameter & Estimate \\ \midrule"""), file=f)
+            #
+            # for param, coefficient in self.beta_estimates["estimate"].items():
+            #     param = param.replace("_", r"\_").replace("[", "{[}").replace("]", "{]}")
+            #     print(param, "&", FLOAT_FORMAT_STRING.format(coefficient), r"\\", file=f)
+            #
+            #
+            #
+            # print(textwrap.dedent(r"""
+            # \bottomrule
+            # \end{tabular}
+            # \end{table}
+            # """), file=f)
 
     def __repr__(self):
         return self.format()
@@ -226,7 +323,8 @@ class Problem:
 
     def _gmm_step(self, pool: Optional[multiprocessing.Pool], theta2: Theta2, initial_deltas: List[Vector], W: Matrix,
                   iteration: Iteration,
-                  optimisation: Optimisation) -> GMMStepResult:
+                  optimisation: Optimisation,
+                  scale_objective: bool = True) -> GMMStepResult:
 
         concentrate_out_linear_parameters = self._make_concentrator(W)
 
@@ -276,14 +374,18 @@ class Problem:
 
             theta1 = concentrate_out_linear_parameters(delta)
             omega = delta - self.products.X1 @ theta1
-            g_mean = omega.T @ self.products.Z / self.N
-            objective_value = g_mean @ W @ g_mean.T
+            g = omega.T @ self.products.Z
+            if scale_objective:
+                g /= self.N
+            objective_value = g @ W @ g.T
 
             if jacobian is None:
                 gradient = None
             else:
-                G_mean = self.products.Z.T @ jacobian / self.N
-                gradient = 2 * G_mean.T @ W @ g_mean
+                G = (self.products.Z.T @ jacobian)
+                if scale_objective:
+                    G /= self.N
+                gradient = 2 * G.T @ W @ g
 
             return Progress(
                 min_objective_value=min(objective_value, progress.min_objective_value),
@@ -328,7 +430,11 @@ class Problem:
         else:
             print(f"Optimisation failed! {optimisation_result.termination_message}")
 
-        return GMMStepResult(self, progress, optimisation_result)
+        # We need the Jacobian for SEs even if we use a non-gradient based solver
+        deltas = np.split(progress.delta, np.cumsum([market.products.J for market in self.markets]))[:-1]
+        jacobian = np.vstack([market.jacobian(theta2, delta) for (market, delta) in zip(self.markets, deltas)])
+
+        return GMMStepResult(self, progress, optimisation_result, W, jacobian)
 
     def _make_concentrator(self, W: Matrix):
         x1_z_w_z = self.products.X1.T @ self.products.Z @ W @ self.products.Z.T

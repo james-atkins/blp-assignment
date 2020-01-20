@@ -1,0 +1,14 @@
+name: blp
+channels:
+  - defaults
+dependencies:
+  - numba
+  - python=3.7
+  - scipy
+  - pandas
+  - numpy
+  - patsy
+  - sympy
+  - pip:
+      - pyblp
+

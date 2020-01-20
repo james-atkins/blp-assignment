@@ -4,13 +4,15 @@
 \usepackage[english]{babel}
 \usepackage{amsmath}
 \usepackage{amsfonts}
-\usepackage{hyperref}
+\usepackage[hidelinks]{hyperref}
 \usepackage{graphicx}
 \usepackage[authordate, isbn=false]{biblatex-chicago}
-\usepackage{todonotes}
+\usepackage[disable]{todonotes}
 \usepackage{booktabs}
 \usepackage{bm}
 \usepackage[section]{placeins}
+\usepackage{subcaption}
+\usepackage{microtype}
 
 \title{Computational Assignment}
 \subtitle{Empirical Industrial Organization and Market Design}
@@ -41,8 +43,6 @@ Furthermore, I describe an small Python package \code{miniblp}, written for this
 \pagebreak
 \section{Description of Data}
 
-\subsection{Product}
-
 The product dataset consists of data of the top 500 paid Android apps from Google's Play Store for 12 countries and 3 time periods (2013, 2016 and 2019), yielding 36 markets (a market is a country-year pair). In total, there are 2128 unique apps. Of these, only 16 appear in all 36 markets and 237 only appear in 18 markets or more. There are 622 apps that are just sold in one market. Figure \ref{fig:unique_apps_per_num_markets} illustrates this distribution. The market share is computed using the estimate of the number of downloads\footnote{Some duplicate entries were found during the data cleaning process. Please see the \code{process\_data.R} file for more information as to how these were handled.}. The share of the outside good is shown in Table \ref{tab:share_outside_good}\todo{One of the papers mentions the importance of the outside good for estimation?}.
 
 \begin{figure}[ht]
@@ -63,10 +63,8 @@ The paid Android app market is characterised by the `Superstars' phenomenon disc
 	\label{fig:top_50_us_2019}
 \end{figure}
 
-\subsection{Demographic}
-
-The demographic data consists of two randomly generated demographics, \emph{demographic1} and \emph{demographic2} with 500 observations for each market\footnote{The raw demographic data consists of a \(36\times1000\) matrix, however as it is unlabelled, it is unclear which market each row corresponds to. Please see the \code{process\_data.R} file for more information.}. Figures \ref{fig:density_demographic_1} and \ref{fig:density_demographic_2} plot their respective distributions.
-\emph{demographic1} is characterised by its long-tail. The bulk of the probability density is around zero however there are a small number of observations with significantly higher values. A real world parallel to this demographic would be income or wealth where most people earn close to the median wage and a few earn significantly more.
+The demographic data consists of two randomly generated demographics, \code{demographic1} and \code{demographic2} with 500 observations for each market\footnote{The raw demographic data consists of a \(36\times1000\) matrix, however as it is unlabelled, it is unclear which market each row corresponds to. Please see the \code{process\_data.R} file for more information.}. Figures \ref{fig:density_demographic_1} and \ref{fig:density_demographic_2} plot their respective distributions.
+\code{demographic1} is characterised by its long-tail. The bulk of the probability density is around zero however there are a small number of observations with significantly higher values. A real world parallel to this demographic would be income or wealth where most people earn close to the median wage and a few earn significantly more.
 \todo{Briefly discuss distribution2}
 
 \begin{figure}[ht]
@@ -172,7 +170,7 @@ Aymptotically efficient estimates can be achieved using two-step GMM. First, \(\
 
 \code{miniblp} is a Python 3 package for estimating random coefficient logit models using the BLP algorithm, written for this assignment. \code{miniblp} has an intuitive interface with `R-style' formulas\footnote{The inspiration for the \href{https://patsy.readthedocs.io/en/latest/}{R-style} formulas came from \code{pyblp}}, and supports a number of different numerical integration, fixed point iteration and optimisation routines. It is trivial for the end user to change integration, iteration or optimisation routines during estimation. Furthermore it is easy to add additional routines.
 
-Compared to more featureful packages such as \code{pyblp} (\cite{conlon2019best}), it does not support the specification of a supply side, nor micro moments nor fixed effect absorption.
+Compared to more featureful packages such as \code{pyblp} (\cite{conlon2019best}), it does not support the specification of a supply side, nor micro moments nor fixed effect absorption. However, (I believe) the code is simpler to understand and it is often faster.
 
 \subsection{Integration}
 
@@ -193,7 +191,7 @@ The advantage and disadvantage of Gaussian quadrature rules is that they are bet
 
 \cite{skrainka2011high} run Monte Carlo simulations and recommend using quadrature rules with an order of 7. They found that using more than 7 nodes in each dimension did not improve accuracy. \cite{conlon2019best} also recommend (for low dimensional problems) product rules with a ``relatively high degree of polynomial accuracy''.
 
-\code{miniblp} supports both Monte Carlo and Gauss–Hermite methods, as well as using precomputed integration nodes and weights. This can be useful for replicating a paper where these are published, for example \cite{nevo2000practitioner}'s fake cereal data.
+\code{miniblp} supports both Monte Carlo and Gauss–Hermite methods, as well as using precomputed integration nodes and weights. This can be useful for replicating a paper where these are published, for example \cite{nevo2000practitioner}'s fake cereal data. \code{miniblp}'s source code includes an replication of this paper, getting comparable results.
 
 \subsection{Iteration}
 
@@ -234,9 +232,60 @@ Numba\footnote{\url{http://numba.pydata.org/}} is ``an open source JIT compiler 
 
 \section{Estimation}
 
+Following the advice of \cite{skrainka2011high} and \cite{dube2012improving}, in all the following estimations, a quadrature rule with polynominal order of 7 is used for numerical integration and the fixed point tolerance is set at \(10^{-14}\).
+
+Given that the scale of \code{demographic1} is significantly larger than the other variables, the fixed point routines quickly run into numerical issues so I normalise it by converting it to a z-score. This scaling also has an advantage in terms of the interpretation of the coefficients (the response due to a \(1-\sigma\) shift in \(x\)). For consistency, I normalise \code{demographic2} using a z-score too.
+
+\begin{equation}
+\label{eq:z_score}
+z(x) = \frac{x - \bar{x}}{\sigma_x}
+\end{equation}
+
+Given the distribution of the market shares, as shown in Figure \ref{fig:top_50_us_2019}, the choice probabilities \eqref{eq:choice_probabilities} for many products and individuals are very close to zero. This results in \(\hat{\delta}\) values which lead to \(\omega\) terms that give very low values of the objective function. This causes significant issues with solvers. In particular, gradient based solvers struggle as the descent is too shallow. There are also problems with numerical stability in the fixed point iteration. The Powell algorithm seems to handle this problem better then the more commonly used Nelder–Mead method. However the objective function seems to have many local optima and it is not certain whether this procedure has found the global optimum. Hence the results should be taken with a ``pinch of salt''.
+
+\subsection{Model with no demographics}
+
+This model uses price, average score and in app purchases as product characteristics, with price having random coefficients. However no demographics are interacted with price; price is only interacted with individual heterogeneity.
+
+The initial value of \(\Sigma\) is chosen from the range of starting parameters \(-5.0, -4.5, \dotsc, 4.5, 5.0\) and the first GMM step of the algorithm is run to explore how sensitive the results are to the initial parameters. Unfortunately, there are no two starting values for which the algorithm converges to the same value indicating the optimiser may have found local, not global, minima. The algorithm does not converge for initial parameters greater or equal to \(2.0\). The encouraging news is that the price coefficient \(\alpha\) has very similar estimates for many different starting values, as can be seen from Figure \ref{fig:search_sigma_price}.
+
+\begin{figure}[ht]
+	\centering
+	\includegraphics[width=\textwidth]{search_sigma_obj_value}
+	\caption{Objective value vs Initial Sigma (Powell algorithm)}
+	\label{fig:search_sigma_obj_value}
+\end{figure}
+
+\begin{figure}[ht]
+	\centering
+	\includegraphics[width=\textwidth]{search_sigma_price}
+	\caption{Estimated price coefficient vs Initial Sigma (Powell algorithm)}
+	\label{fig:search_sigma_price}
+\end{figure}
+
 \subsection{Baseline model}
+
+The baseline model uses price, average score and in app purchases as product characteristics, with price having random coefficients. \code{demographic1} is the demographic to interacted with price.
+
+As noted above the estimates are highly sensitive to initial values of \(\theta_2\). Again a search of initial parameters variables is conducted using first stage GMM. The initial value of \(\Sigma\) ranges from \(\{-1.0, -0.5, 0.0, 0.5, 1.0\}\) and the initial value of \(\Pi\) from \(\{-2.0, -1.5, \dots, 1.5, 2.0\}\). In particular there are no two starting values which converge to the same minimum.
+
+The estimates below in Table \ref{tab:estimation1} are calculated using a two-step GMM. The initial values of \(\Sigma\) and \(\Pi\) were the values found \((-0.5, -0.5)\) that gave the lowest objective value during the initial search.
+
+\input{output/estimation1}
+
 \subsection{Genre dummy variables}
+
+This model augments the baseline model by including \code{nest} dummy variables to control for the genre. Ideally if we are not interested in the values of these coefficients but only wish to control for them nonetheless, then a within transformation could be carried out. For simplicity, I do not do that here.
+
+The results below are presented with the same procedure as above: first a search of initial parameters is carried out, the estimates are unfortunately found to be sensitive to the initial values, and then a two-step GMM is run with the initial values that yielded the lowest value of the objective function. Estimates are reported in Table \ref{tab:estimation2}.
+
+The magnitude of the price term is smaller compared with the baseline model and the objective value is smaller as the dummy variables can explain more of the variation. What is notable is that the sign on average score has reversed and is now positive, as should be expected.
+
+\input{output/estimation2}
+
 \subsection{Hausman instrument}
+
+The quality of the estimates will ultimately depend on how good the instrument is. Two common types of instruments are BLP and Hausman instruments. In this part, I use a Hausman instrument.
 
 \begin{description}
 	\item[Product space isolation] BLP and Berry (1994) suggest measures of isolation in product space as instruments. 
@@ -246,7 +295,33 @@ Numba\footnote{\url{http://numba.pydata.org/}} is ``an open source JIT compiler 
 	\item[Hausman Instruments] Another class of instruments are Hausman instruments: the prices of products in other markets. For example the prices of an app in the United Kingdom, France and Germany could be used as an instrument for price in Italy. The instrument works by picking up common cost shocks but would be invalid if it picked up common demand shocks.
 \end{description}
 
-\subsection{Additional characteristic}
+Again, as the problem is characterised by multiple local optima, I carry out the same procedure as above. Estimates are reported in Table \ref{tab:estimation3}.
+
+\input{output/estimation3}
+
+It is notable that the coefficient on price is much more negative than with the simpler instrument. The sign on average score is also positive, as should be expected.
+
+\subsection{Average score with random coefficients}
+
+Finally I estimate the model with the average score also having random coefficients.
+%
+This requires that the initial \(\Sigma\) matrix is \(2 \times 2\) and \(\Pi\) is \(2 \times 1\). For simplicity, I assume that \(\Sigma\) is a diagonal matrix so only the variance terms, not the covariance terms, are estimated. I use the same Hausman style instrument as before.
+%
+The initial values were \(\Sigma = \begin{pmatrix}
+-1 & 0\\
+0 & 1
+\end{pmatrix}\) and \(\Pi = \begin{pmatrix}
+1 \\
+-1
+\end{pmatrix}\). They were found by the search procedure described above.
+
+\input{output/estimation4}
+
+The price estimate is even more negative than with the baseline model with the Hausman instrument. All other coefficients have the expected signs.
+
+\subsection{Conclusion}
+
+\cite{knittel2014estimation} document challenges experienced when estimating random-coefficient logit models including numerical errors, and optimisers converging on local minima or not at all. This exercise may be some more data in their favour. Despite trying multiple optimisers, integration routines and initial starting values, I was consistently unable to find parameter values which converged to an optimum. The dataset with a large number of apps, small market shares and not much variation across markets have presented a particular challenge.
 
 \printbibliography
 

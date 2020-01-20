@@ -78,12 +78,16 @@ apps <- apps %>%
 
 raw_demographics <- as.matrix(read_csv("raw_data/demogr_apps.csv", col_names = FALSE))
 
+z_score <- function(x) (x - mean(x)) / sd(x)
+
 # !!! Assume that country-year pairs appear in the same order as they do in the apps dataset !!!
 # i.e. Spain 2013, UK 2013, ...
 demographics <- apps %>%
   distinct(market_id, country, year) %>% slice(rep(1:n(), each = 500)) %>%
   mutate(demographic1 = as.vector(raw_demographics[,1:500]),
-         demographic2 = as.vector(raw_demographics[,501:1000]))
+         demographic2 = as.vector(raw_demographics[,501:1000]),
+         demographic1_z = z_score(demographic1),
+         demographic2_z = z_score(demographic2))
 
 
 ### EXPORT

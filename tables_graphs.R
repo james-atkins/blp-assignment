@@ -89,3 +89,29 @@ ggsave("output/kernel_density_demographic1.png")
 
 kernel_density_plot(demographic2)
 ggsave("output/kernel_density_demographic2.png")
+
+
+search_0 <- read_csv("searches/0.csv") %>%
+  filter(converged)
+
+ggplot(search_0, aes(x = initial_sigma, y = objective)) +
+  geom_line() +
+  labs(x = "Initial Sigma", y = "Objective Value") +
+  theme_minimal_hgrid()
+
+ggsave("output/search_sigma_obj_value.png")
+
+ggplot(search_0, aes(x = initial_sigma, y = price)) +
+  geom_line() +
+  labs(x = "Initial Sigma", y = "Price Coefficient") +
+  theme_minimal_hgrid()
+
+ggsave("output/search_sigma_price.png")
+
+ggplot(search_0, aes(x = initial_sigma, y = sigma)) +
+  geom_line() +
+  labs(x = "Initial Sigma", y = "Estimated Sigma") +
+  theme_minimal_hgrid()
+
+ggsave("output/search_sigma_est_sigma.png")
+

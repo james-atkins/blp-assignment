@@ -174,3 +174,28 @@ class Theta2:
                 self.unfixed.append(parameter)
             else:
                 self.fixed.append(parameter)
+
+    def expand(self, theta_like: Vector, nullify: bool = False) -> Tuple[Vector, Vector]:
+        sigma_like = np.full_like(self.sigma, np.nan)
+        pi_like = np.full_like(self.pi, np.nan)
+
+        items = [
+            (SigmaParameter, sigma_like),
+            (PiParameter, pi_like),
+        ]
+
+        for parameter, value in zip(self.unfixed, theta_like):
+            for parameter_type, values in items:
+                if isinstance(parameter, parameter_type):
+                    values[parameter.index] = value
+                    break
+
+        if not nullify:
+            sigma_like[np.triu_indices_from(sigma_like, 1)] = 0
+            for parameter in self.fixed:
+                for parameter_type, values in items:
+                    if isinstance(parameter, parameter_type):
+                        values[parameter.index] = 0
+                        break
+
+        return sigma_like, pi_like
